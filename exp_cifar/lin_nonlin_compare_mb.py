@@ -94,6 +94,8 @@ def analyze(loader, model, model_0, optimizer0, alpha=1):
     return deltas_lin, deltas_nonlin
         
 
+margin_scores = []
+
 for ckpt_path in ckpt_paths:
 
     print(ckpt_path)
@@ -107,13 +109,39 @@ for ckpt_path in ckpt_paths:
 
     diff = delta_nonlin_sum - delta_lin_sum
 
-    plt.figure()
-    plt.scatter(ranks, margin_mean(diff.cpu(), labels), alpha=.5)
-    # plt.scatter(ranks, diff.cpu()[np.arange(n_examples), labels], alpha=.5)
-    plt.title(ckpt_path.split('/')[-1])
-    plt.grid()
+    margin_scores.append(margin_mean(diff.cpu(), labels))
 
-    ylims = plt.ylim()
-    ylim_max = max(-ylims[0], ylims[1])
-    plt.ylim(-ylim_max, ylim_max)
+    if False:
+        plt.figure()
+        plt.scatter(ranks, margin_scores[-1], alpha=.5)
+        # plt.scatter(ranks, diff.cpu()[np.arange(n_examples), labels], alpha=.5)
+        plt.title(ckpt_path.split('/')[-1])
+        plt.grid()
+
+        ylims = plt.ylim()
+        ylim_max = max(-ylims[0], ylims[1])
+        plt.ylim(-ylim_max, ylim_max)
+        plt.show()
+
+# %%
+
+deltas_by_bins = []
+for margin in margin_scores:
+    ranked = margin[order]
+    averaged = ranked.reshape(10, -1).mean(axis=1)
+
+    plt.figure()
+    plt.scatter(np.arange(10), averaged)
     plt.show()
+
+    deltas_by_bins.append(averaged.numpy())
+
+# %%
+
+deltas_by_bins = np.array(deltas_by_bins)
+dbb = (deltas_by_bins - deltas_by_bins.mean(axis=1, keepdims=True)) / (deltas_by_bins.max(axis=1, keepdims=True) - deltas_by_bins.min(axis=1, keepdims=True))
+# dbb = deltas_by_bins / np.abs(deltas_by_bins).max(axis=1, keepdims=True)
+# dbb = deltas_by_bins / np.linalg.norm(deltas_by_bins, axis=1, keepdims=True)
+mm = max(-dbb.min(), dbb.max())
+plt.imshow(dbb.T, cmap='PiYG', vmin=-mm, vmax=mm)
+plt.colorbar()

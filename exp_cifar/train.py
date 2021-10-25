@@ -108,7 +108,7 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
 
             if iterations == 0 or rae.get('train_acc') >= next_milestone / 100:
                 do_save_checkpoint(iterations, next_milestone, model, model_0, optimizer, dataloaders, rae, alpha)
-                next_milestone += 10
+                next_milestone += 2.5
 
             inputs, targets = inputs.to('cuda'), targets.to('cuda')
             optimizer.zero_grad()
