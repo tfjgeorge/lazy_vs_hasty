@@ -2,6 +2,7 @@ import os
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn as nn
+from torch.utils.data.sampler import RandomSampler
 
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10, MNIST, KMNIST
@@ -49,11 +50,12 @@ def get_cifar10(args, sampler=None):
 
     trainset = CIFAR10(root=default_datapath, train=True, download=True,
                        transform=trfms)
+    trainset = to_tensordataset(trainset)
     if sampler is None:
-        trainloader = DataLoader(to_tensordataset(trainset), batch_size=args.batch_size,
-                                shuffle=True)
+        trainloader = DataLoader(trainset, batch_size=args.batch_size,
+                                 shuffle=True)
     else:
-        trainloader = DataLoader(to_tensordataset(trainset), batch_size=args.batch_size,
+        trainloader = DataLoader(trainset, batch_size=args.batch_size,
                                 sampler=sampler)
     trainloader_det = DataLoader(trainloader.dataset, batch_size=1000,
                                  shuffle=False)
