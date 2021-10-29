@@ -29,3 +29,7 @@ def get_binned_dataloaders(scores, dataloader, n_bins, n_examples):
         dataset = TensorDataset(*tensors)
         out_loaders.append(DataLoader(dataset, batch_size=n_examples, shuffle=False))
     return out_loaders
+
+
+def path_to_dict(path):
+    return {k: v for k, v in [w.split('=') for w in path.split(',')]}

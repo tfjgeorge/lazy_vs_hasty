@@ -274,7 +274,6 @@ if args.fork_from is not None:
     test_logits = checkpoint['test_logits']
 
     start_iteration = checkpoint['iterations']
-    torch.set_rng_state(checkpoint['torch_rng_state'])
 
     _, dataloaders, criterion = get_task(args)
 
@@ -287,6 +286,8 @@ if args.fork_from is not None:
         dataloaders['mini_train_diff'] = checkpoint['train_diff_dataloader']
         train_diff_dataset = dataloaders['mini_train_diff'].dataset
         train_diff_dataset.tensors = (train_diff_dataset.tensors[0], train_diff_dataset.tensors[1], train_diff_logits)
+
+    torch.set_rng_state(checkpoint['torch_rng_state'])
 
 else:
     checkpoint = None

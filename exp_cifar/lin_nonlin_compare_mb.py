@@ -95,11 +95,13 @@ def analyze(loader, model, model_0, optimizer0, alpha=1):
         
 
 margin_scores = []
+accs = []
 
 for ckpt_path in ckpt_paths:
 
     print(ckpt_path)
     ckpt = torch.load(ckpt_path)
+    accs.append(float(ckpt_path.split('/')[-1].split('_')[1]))
 
     deltas_lin, deltas_nonlin = analyze(dataloaders['train'], ckpt['model'], ckpt['model_0'],
                                         ckpt['optimizer'])
@@ -139,9 +141,15 @@ for margin in margin_scores:
 # %%
 
 deltas_by_bins = np.array(deltas_by_bins)
-dbb = (deltas_by_bins - deltas_by_bins.mean(axis=1, keepdims=True)) / (deltas_by_bins.max(axis=1, keepdims=True) - deltas_by_bins.min(axis=1, keepdims=True))
+# dbb = (deltas_by_bins - deltas_by_bins.mean(axis=1, keepdims=True)) / (deltas_by_bins.max(axis=1, keepdims=True) - deltas_by_bins.min(axis=1, keepdims=True))
 # dbb = deltas_by_bins / np.abs(deltas_by_bins).max(axis=1, keepdims=True)
 # dbb = deltas_by_bins / np.linalg.norm(deltas_by_bins, axis=1, keepdims=True)
+dbb = deltas_by_bins
 mm = max(-dbb.min(), dbb.max())
 plt.imshow(dbb.T, cmap='PiYG', vmin=-mm, vmax=mm)
-plt.colorbar()
+plt.ylabel('cscore bin')
+cbar = plt.colorbar()
+plt.xticks(np.linspace(0, len(accs)-1, 5), np.array(accs)[np.linspace(0, len(accs)-1, 5).astype('int')])
+plt.xlabel('train accuracy')
+cbar.ax.set_ylabel('delta', rotation=270)
+# %%
