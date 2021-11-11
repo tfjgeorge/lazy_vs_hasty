@@ -153,3 +153,17 @@ plt.xticks(np.linspace(0, len(accs)-1, 5), np.array(accs)[np.linspace(0, len(acc
 plt.xlabel('train accuracy')
 cbar.ax.set_ylabel('delta', rotation=270)
 # %%
+
+deltas_by_bins = np.array(deltas_by_bins)
+# dbb = (deltas_by_bins - deltas_by_bins.mean(axis=1, keepdims=True)) / (deltas_by_bins.max(axis=1, keepdims=True) - deltas_by_bins.min(axis=1, keepdims=True))
+# dbb = deltas_by_bins / np.abs(deltas_by_bins).max(axis=1, keepdims=True)
+# dbb = deltas_by_bins / np.linalg.norm(deltas_by_bins, axis=1, keepdims=True)
+dbb = deltas_by_bins.argsort(axis=1).argsort(axis=1)
+plt.imshow(dbb.T, cmap='PiYG')
+plt.ylabel('cscore bin')
+cbar = plt.colorbar()
+plt.xticks(np.linspace(0, len(accs)-1, 5), np.array(accs)[np.linspace(0, len(accs)-1, 5).astype('int')])
+plt.xlabel('train accuracy')
+cbar.ax.set_ylabel('delta rank', rotation=270)
+plt.title('margin_mean(nonlin - lin)')
+# %%
