@@ -1,5 +1,6 @@
 # %%
 
+from matplotlib.colors import Normalize
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -121,7 +122,7 @@ cummin = np.minimum.accumulate
 
 # %%
 
-def plot_vs_train_loss(path, path_fork):
+def plot_vs_train_loss(path, path_fork, normalize=True):
     print(path_to_dict(os.path.split(path_fork)[-1]))
 
     d = pd.read_pickle(os.path.join(path, 'log.pkl'))
@@ -141,15 +142,17 @@ def plot_vs_train_loss(path, path_fork):
         plt.plot(d['train_loss'].cummin(), losses[:, i], color=cmap[i])
         plt.plot(d_fork['train_loss'].cummin(), losses_fork[:, i], '--', color=cmap[i])
     # plt.xscale('log')
-    plt.xlim(2.5, 1.5)
+
+    xtent = d_fork['train_loss'].max() - d_fork['train_loss'].min()
+    plt.xlim(d_fork['train_loss'].max() + xtent * .1, d_fork['train_loss'].min() - xtent * .1)
     plt.ylabel('train loss - subsets ranked by cscore')
     plt.xlabel('average train loss')
     # plt.ylim(0, 1)
     plt.grid()
-    plt.savefig('figures/loss_vs_loss_bins.pdf')
+    plt.savefig(f'figures/{checkpoint_name}_loss_vs_{"loss" if normalize else "its"}_bins.pdf')
     plt.show()
 
-def plot_vs_train_acc(path, path_fork):
+def plot_vs_train_acc(path, path_fork, normalize=True):
     print(path_to_dict(os.path.split(path_fork)[-1]))
 
     d = pd.read_pickle(os.path.join(path, 'log.pkl'))
@@ -162,32 +165,47 @@ def plot_vs_train_acc(path, path_fork):
 
     plt.figure(figsize=(8, 3 / 5 * 8))
 
+    if normalize:
+        # x = d['train_acc'].cummax()
+        # x_fork = d_fork['train_acc'].cummax()
+        x = accs.mean(axis=1)
+        x_fork = accs_fork.mean(axis=1)
+        plt.xlabel('average train acc')
+    else:
+        x = d['iteration']
+        x_fork = d_fork['iteration']
+        plt.xlabel('sgd iterations')
+        xtent = d_fork['iteration'].max()
+        plt.xlim(0, xtent*1.2)
+
     checkpoint_name = path_fork.split('/')[3]
     plt.suptitle(checkpoint_name)
     cmap = cm.viridis(np.linspace(0, .8, 5))
     for i in range(5):
-        plt.plot(d['train_acc'].cummax(), accs[:, i], color=cmap[i])
-        plt.plot(d_fork['train_acc'].cummax(), accs_fork[:, i], '--', color=cmap[i])
+        plt.scatter(x, accs[:, i], marker='x', color=cmap[i])
+        plt.scatter(x_fork, accs_fork[:, i], marker='.', color='red')#cmap[i], alpha=.5)
     # plt.xscale('log')
     # plt.xlim(2.5, 1.5)
     plt.ylabel('train acc - subsets ranked by cscore')
-    plt.xlabel('average train acc')
     # plt.ylim(0, 1)
     plt.grid()
-    plt.savefig('figures/acc_vs_acc_bins.pdf')
+    plt.savefig(f'figures/{checkpoint_name}_acc_vs_{"acc" if normalize else "its"}_bins.pdf')
     plt.show()
 
 
 # %%
 
-path_fork = 'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_20_400/alpha=10000.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0'
+paths_fork = [
+    'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_20_400/alpha=10000.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=10000,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0',
+    'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_10_0/alpha=10000.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=10000,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0',
+    'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_75_8400/alpha=10.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=30,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0',
+    'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_80_10000/alpha=10.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=30,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0',
+]
 
-plot_vs_train_loss(path, path_fork)
-plot_vs_train_acc(path, path_fork)
+for path_fork in paths_fork:
+    plot_vs_train_loss(path, path_fork)
+    plot_vs_train_acc(path, path_fork)
+
+    plot_vs_train_acc(path, path_fork, normalize=False)
 
 # %%
-
-path_fork = 'results/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_10_0/alpha=10000.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1000,fork=True,l2=0.0,lr=0.02,mom=0.0,task=cifar10_resnet18,track_accs=True,width=0'
-
-plot_vs_train_loss(path, path_fork)
-plot_vs_train_acc(path, path_fork)
