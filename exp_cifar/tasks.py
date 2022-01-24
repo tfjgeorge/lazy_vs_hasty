@@ -1,6 +1,6 @@
 import os
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Subset
 import torch.nn as nn
 from torch.utils.data.sampler import RandomSampler
 
@@ -48,8 +48,9 @@ def get_cifar10(args, sampler=None):
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
-    trainset = CIFAR10(root=default_datapath, train=True, download=True,
-                       transform=trfms)
+    trainset = Subset(CIFAR10(root=default_datapath, train=True, download=True,
+                              transform=trfms),
+                      range(40000))
     trainset = to_tensordataset(trainset)
     if sampler is None:
         trainloader = DataLoader(trainset, batch_size=args.batch_size,
@@ -60,8 +61,9 @@ def get_cifar10(args, sampler=None):
     trainloader_det = DataLoader(trainloader.dataset, batch_size=1000,
                                  shuffle=False)
 
-    testset = CIFAR10(root=default_datapath, train=False, download=True,
-                      transform=trfms)
+    testset = Subset(CIFAR10(root=default_datapath, train=True, download=True,
+                             transform=trfms),
+                     range(40000, 50000))
     testloader = DataLoader(to_tensordataset(testset), batch_size=1000,
                             shuffle=False)
 

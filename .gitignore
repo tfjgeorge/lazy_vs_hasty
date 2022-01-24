@@ -1,0 +1,2 @@
+slurm-*.out
+exp_cifar/figures/*.pdf

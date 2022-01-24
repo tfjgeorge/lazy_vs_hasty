@@ -13,6 +13,8 @@ import copy
 from utils import RunningAverageEstimator, get_binned_dataloaders
 import math
 
+from alignment import alignment
+
 from nngeometry.object import PVector, PushForwardImplicit, PushForwardDense
 from nngeometry.generator import Jacobian
 
@@ -40,8 +42,10 @@ parser.add_argument('--epochs', default=100, type=int, help='epochs')
 parser.add_argument('--batch_size', default=125, type=int, help='Batch size')
 parser.add_argument('--batch_norm', action='store_true')
 parser.add_argument('--track_accs', action='store_true', help='Computes accuracy in subsets of trainset binned by cscore')
+parser.add_argument('--track_aligns', action='store_true', help='Computes alignment in subsets of trainset binned by cscore')
 
 parser.add_argument('--fork_from', default=None, type=str, help='Reload checkpoint')
+parser.add_argument('--base_path', default=None, type=str, help='Path to store results')
 
 args = parser.parse_args()
 
@@ -129,10 +133,15 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
                         test(dataloaders['mini_train_diff'], model, model_0, alpha)
                 if args.track_accs:
                     to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
+                    to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
+                if args.track_aligns:
+                    to_log['train_aligns'] = align_binned(dataloaders['train_binned'], model)
                 log.loc[len(log)] = to_log
                 print(log.loc[len(log) - 1])
 
-                log.to_pickle(os.path.join(results_dir,'log.pkl'))
+                path_log = os.path.join(results_dir,'log.pkl')
+                log.to_pickle(path_log)
+                print(f'saved log to {path_log}')
 
                 params_before = PVector.from_model(model).clone().detach()
 
@@ -170,7 +179,6 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
             do_save_checkpoint = False
 
 
-
 def test_binned(loaders, model, model_0, alpha):
     accs = []
     losses = []
@@ -179,6 +187,13 @@ def test_binned(loaders, model, model_0, alpha):
         accs.append(acc)
         losses.append(loss)
     return accs, losses
+
+
+def align_binned(loaders, model):
+    aligns = []
+    for loader in loaders:
+        aligns.append(alignment(model, lambda *x: model(x[0]), loader, 10, centering=False)[0])
+    return aligns
 
 
 def test(loader, model, model_0, alpha):
@@ -242,7 +257,10 @@ def mkdir(p, m=None):
         pass
 
 name = ''
+excludes = ['base_path']
 for k, v in sorted(args.__dict__.items(), key=lambda a: a[0]):
+    if k in excludes:
+        continue
     if v is not False:
         if k == 'fork_from':
             if v is not None:
@@ -300,7 +318,7 @@ else:
     optimizer = optim.SGD(model.parameters(), lr=args.lr / args.alpha, momentum=args.mom,
                         weight_decay=args.l2)
 
-    results_dir = os.path.join('results', name)
+    results_dir = os.path.join(args.base_path, name)
 
     rae.update('train_loss', -math.log(1/10))
     rae.update('train_acc', 1/10)
@@ -320,14 +338,28 @@ columns = ['iteration', 'time', 'epoch',
 columns_lin = ['iteration', 'train_lin', 'train_nonlin']
 if args.diff > 0.:
     columns += ['train_diff_acc', 'train_diff_loss']
-if args.track_accs:
-    columns += ['train_accs', 'train_losses']
-
+if args.track_accs or args.track_aligns:
     with open('cifar10-cscores-orig-order.npz', 'rb') as f:
         d = np.load(f)
         cscores = d['scores']
         labels = d['labels']
-    dataloaders['train_binned'] = get_binned_dataloaders(cscores, dataloaders['train_deterministic'], 5, 250)
+
+    # percentiles = [(0, 0.1),
+    #                (.45, .55),
+    #                (.9, 1.)]
+    percentiles = [(i*.1, (i+1)*.1) for i in range(10)]
+
+    rng = np.random.default_rng(1337)
+    dataloaders['train_binned'] = get_binned_dataloaders(cscores[:40000],
+        dataloaders['train_deterministic'], percentiles, 1000, rng)
+    dataloaders['test_binned'] = get_binned_dataloaders(cscores[40000:],
+        dataloaders['test'], percentiles, 1000, rng)
+
+    if args.track_accs:
+        columns += ['train_accs', 'train_losses']
+        columns += ['test_accs', 'test_losses']
+    if args.track_aligns:
+        columns += ['train_aligns']
 
 log = pd.DataFrame(columns=columns)
 lin_log = pd.DataFrame(columns=columns_lin)

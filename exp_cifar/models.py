@@ -73,8 +73,7 @@ class BasicBlock(nn.Module):
         else:
             out = F.relu(self.conv1(x))
             out = self.conv2(out)
-        out += self.shortcut(x)
-        out = F.relu(out)
+        out = F.relu(out + self.shortcut(x))
         return out
 
 

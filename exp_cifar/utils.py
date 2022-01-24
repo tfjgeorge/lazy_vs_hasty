@@ -18,13 +18,13 @@ class RunningAverageEstimator:
         return self.estimates[key]
 
 
-def get_binned_dataloaders(scores, dataloader, n_bins, n_examples):
+def get_binned_dataloaders(scores, dataloader, bin_percentiles, n_examples, rng):
     order = scores.argsort()
-    binned = order.reshape(n_bins, -1)
     out_loaders = []
     source_tensors = dataloader.dataset.tensors
-    for i in range(n_bins):
-        indices = np.concatenate((binned[i][:n_examples // 2], binned[i][-n_examples // 2:]))
+    for low, high in bin_percentiles:
+        indices_bin = order[int(low*len(order)):int(high*len(order))]
+        indices = rng.choice(indices_bin, size=n_examples, replace=False)
         tensors = (source_tensors[0][indices], source_tensors[1][indices], source_tensors[2][indices])
         dataset = TensorDataset(*tensors)
         out_loaders.append(DataLoader(dataset, batch_size=n_examples, shuffle=False))
