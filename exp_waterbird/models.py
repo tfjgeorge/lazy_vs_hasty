@@ -223,6 +223,7 @@ class ERM(torch.nn.Module):
         #sq_f0 = 0
         act_change = 0
         self.eval()
+        self.model0.eval()
         with torch.no_grad():
             for i, x, y, g in loader:
                 predictions, feat, feat0 = self.predict(x.cuda())
@@ -268,6 +269,7 @@ class ERM(torch.nn.Module):
         computer['eff_rank'] = eff_rank.item()
 
         self.train()
+        self.model0.train()
         return computer
 
 
