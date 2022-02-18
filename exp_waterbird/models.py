@@ -29,7 +29,7 @@ class FineTuneNet(torch.nn.Module):
         super(FineTuneNet, self).__init__()
         self.fc1 = torch.nn.Sequential(torch.nn.Linear(dim, 256), torch.nn.ReLU())
         self.fc2 = torch.nn.Linear(256, num_classes)
-        self.fc = torch.nn.Linear(dim, num_classes)
+        #self.fc = torch.nn.Linear(dim, num_classes)
 
     #def feats(self, x):
         #with torch.no_grad():
@@ -38,7 +38,7 @@ class FineTuneNet(torch.nn.Module):
     def forward(self, x):
         h = self.fc1(x)
         #if feat:
-        return self.fc(x).squeeze(), h
+        return self.fc2(h).squeeze(), h
         #return self.fc2(h).squeeze()
 
 
@@ -254,7 +254,7 @@ class ERM(torch.nn.Module):
 
         # compute effective rank
         ev = torch.linalg.eigvalsh(proj_feat)
-        eff_rank = torch.exp(Categorical(probs = ev/ev.sum()).entropy())
+        #eff_rank = torch.exp(Categorical(probs = ev/ev.sum()).entropy())
 
         norm_feat = torch.linalg.matrix_norm(proj_feat)
         norm_feat0 = torch.linalg.matrix_norm(proj_feat0)
@@ -266,7 +266,7 @@ class ERM(torch.nn.Module):
         computer['accuracies'] = sum(corrects) / sum(totals), [c/t for c, t in zip(corrects, totals)]
         computer['alignments'] = align_y.item(), align_g.item(), align_init.item()
         computer['activ_change'] = (act_change / len(loader)).item()
-        computer['eff_rank'] = eff_rank.item()
+        #computer['eff_rank'] = eff_rank.item()
 
         self.train()
         self.model0.train()

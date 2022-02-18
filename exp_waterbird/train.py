@@ -125,8 +125,8 @@ def run_experiment(args):
             computer = model.computers(loader)
             avg_acc, group_accs = computer['accuracies']
             align_y, align_g, align_init = computer['alignments']
-            activ_change = computer['alignments']
-            eff_rank = computer['eff_rank']
+            activ_change = computer['activ_change']
+            #eff_rank = computer['eff_rank']
             result["acc_" + loader_name] = group_accs
             result["avg_acc_" + loader_name] = avg_acc
             result["aligny_" + loader_name] = align_y
@@ -138,7 +138,7 @@ def run_experiment(args):
             recorder.save("aligng_" + loader_name, align_g)
             recorder.save("aligninit_" + loader_name, align_init)
             recorder.save("activ_change_" + loader_name, activ_change)
-            recorder.save("eff_rank_" + loader_name, eff_rank)
+            #recorder.save("eff_rank_" + loader_name, eff_rank)
 
         selec_value = {
             "min_acc_va": min(result["acc_va"]),
