@@ -271,60 +271,6 @@ class ERM(torch.nn.Module):
         return computer
 
 
-    def accuracy(self, loader):
-        nb_groups = loader.dataset.nb_groups
-        nb_labels = loader.dataset.nb_labels
-        corrects = torch.zeros(nb_groups * nb_labels)
-        totals = torch.zeros(nb_groups * nb_labels)
-        self.eval()
-        with torch.no_grad():
-            for i, x, y, g in loader:
-                predictions = self.predict(x.cuda())
-                if predictions.squeeze().ndim == 1:
-                    predictions = (predictions > 0).cpu().eq(y).float()
-                else:
-                    predictions = predictions.argmax(1).cpu().eq(y).float()
-                groups = (nb_groups * y + g)
-                for gi in groups.unique():
-                    corrects[gi] += predictions[groups == gi].sum()
-                    totals[gi] += (groups == gi).sum()
-        corrects, totals = corrects.tolist(), totals.tolist()
-        self.train()
-        return sum(corrects) / sum(totals),\
-            [c/t for c, t in zip(corrects, totals)]
-
-    def alignment(self, loader):
-        nb_groups = loader.dataset.nb_groups
-        nb_labels = loader.dataset.nb_labels
-        proj_y = torch.zeros(256).cuda()
-        proj_g = torch.zeros(256).cuda()
-        norm_y = 0
-        norm_g = 0
-        sq_f = 0
-        self.eval()
-        with torch.no_grad():
-            for i, x, y, g in loader:
-                __, feat = self.network(x.cuda())
-                y, g = y.float().cuda(), g.float().cuda()
-                yc = y- y.mean()
-                gc = g - g.mean()
-                #print(y.is_cuda, feat.is_cuda)
-                proj_y += torch.mm(yc[None, :], feat).squeeze()
-                proj_g += torch.mm(gc[None, :], feat).squeeze()
-                norm_y += sum(yc**2)
-                norm_g += sum(gc**2)
-                sq_f += torch.sum(feat**2, dim=0)
-                #groups = (nb_groups * y + g)
-                #for gi in groups.unique():
-                    #corrects[gi] += predictions[groups == gi].sum()
-                    #totals[gi] += (groups == gi).sum()
-        #corrects, totals = corrects.tolist(), totals.tolist()
-            sq_f = torch.norm(sq_f)
-            align_y = torch.norm(proj_y)**2/(norm_y*sq_f)
-            align_g = torch.norm(proj_g)**2/(norm_g*sq_f)
-        self.train()
-        return align_y.item(), align_y.item()
-
     def load(self, fname):
         dicts = torch.load(fname)
         self.last_epoch = dicts["epoch"]
