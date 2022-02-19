@@ -31,15 +31,9 @@ class FineTuneNet(torch.nn.Module):
         self.fc2 = torch.nn.Linear(256, num_classes)
         #self.fc = torch.nn.Linear(dim, num_classes)
 
-    #def feats(self, x):
-        #with torch.no_grad():
-            #return self.fc1(x)
-
     def forward(self, x):
         h = self.fc1(x)
-        #if feat:
         return self.fc2(h).squeeze(), h
-        #return self.fc2(h).squeeze()
 
 
 class BertWrapper(torch.nn.Module):
@@ -115,15 +109,7 @@ class ERM(torch.nn.Module):
             # freeze parameters of pretrained model
             #for param in self.network.parameters():
                 #param.requires_grad = False
-            # replace final layer by a small (2-layer) network:
-            #self.network.fc = torch.nn.Linear(
-                #self.network.fc.in_features, self.n_classes)
             self.network.fc = FineTuneNet(self.network.fc.in_features, self.n_classes)
-                #torch.nn.Sequential(
-                #torch.nn.Linear(self.network.fc.in_features, 256),
-                #torch.nn.ReLU(),
-                #torch.nn.Linear(256, self.n_classes)
-                #)
 
             self.optimizer = optimizers['sgd'](
                 self.network,
@@ -173,12 +159,13 @@ class ERM(torch.nn.Module):
         output, _ = self.network(x)
         with torch.no_grad():
             output0, _ = self.model0(x)
-        output = self.hparams['alpha'] * (output - output0)
-        return self.loss(output, y).mean()
+        output = self.hparams['alpha'] * (output - output0.detach())
+        return self.loss(output, y)
 
     def update(self, i, x, y, g, epoch):
         x, y, g = x.cuda(), y.cuda(), g.cuda()
-        loss_value = self.compute_loss_value_(i, x, y, g, epoch)
+        loss_values = self.compute_loss_value_(i, x, y, g, epoch)
+        loss_value = loss_values.mean()
 
         if loss_value is not None:
             self.optimizer.zero_grad()
@@ -195,10 +182,10 @@ class ERM(torch.nn.Module):
             if self.data_type == "text":
                 self.network.zero_grad()
 
-            loss_value = loss_value.item()
+            #loss_value = loss_value.item()
 
         self.last_epoch = epoch
-        return loss_value
+        return loss_values
 
     def predict(self, x):
         output, feat = self.network(x)
