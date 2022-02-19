@@ -83,8 +83,8 @@ def run_experiment(args):
     torch.manual_seed(args["init_seed"])
     np.random.seed(args["init_seed"])
     loaders = get_loaders(args["data_path"], args["dataset"], args["batch_size"], args["method"])
-    nb_groups = loader['tr'].dataset.nb_groups
-    nb_labels = loader['tr'].dataset.nb_labels
+    nb_groups = loaders['tr'].dataset.nb_groups
+    nb_labels = loaders['tr'].dataset.nb_labels
 
     sys.stdout = Tee(os.path.join(
         #args["output_dir"], 'seed_{}_{}.out'.format(
@@ -125,7 +125,7 @@ def run_experiment(args):
     for epoch in range(last_epoch, args["num_epochs"]):
         loss = 0
         group_losses = torch.zeros(nb_groups * nb_labels)
-        total = torch.zeros(nb_groups * nb_labels)
+        totals = torch.zeros(nb_groups * nb_labels)
         print('\nEpoch: %d' % epoch)
         if epoch == args["T"] + 1 and args["method"] == "jtt":
             loaders = get_loaders(
@@ -135,25 +135,26 @@ def run_experiment(args):
                 args["method"],
                 model.weights.tolist())
 
-        for i, x, y, g in tqdm(loaders["tr"]):
-            loss_values = model.update(i, x, y, g, epoch)
+        for idx, (i, x, y, g) in enumerate(tqdm(loaders["tr"])):
+            loss_values = model.update(i, x, y, g, epoch).cpu()
             loss += loss_values.mean().item()
+            norm_loss = loss / (idx+1)
             # compute group losses
             groups = (nb_groups * y + g)
             for gi in groups.unique():
-                loss[gi] += loss_values[groups == gi].sum()
+                group_losses[gi] += loss_values[groups == gi].sum()
                 totals[gi] += (groups == gi).sum()
-            if i % 5 == 0:
-                loss, totals = loss.tolist(), totals.tolist()
-                recorder.save("av_tr_loss", loss / (i+1))
-                recorder.save("group_tr_loss", [c/t for c, t in zip(corrects, totals)])
+            if idx % 5 == 0:
+                losses, tots = group_losses.tolist(), totals.tolist()
+                recorder.save("av_tr_loss", loss / (idx+1))
+                recorder.save("group_tr_loss", [c/t if t!=0 else 0 for c, t in zip(losses, tots)])
 
         result = {
             "args": args, "epoch": epoch, "time": time.time() - start_time}
         print("monitoring...")
         for loader_name, loader in loaders.items():
-            if loader_name in ["tr', 'te"]:
-                break
+            if loader_name in ["tr", "te"]:
+                continue
             computer = model.computers(loader)
             avg_acc, group_accs = computer['accuracies']
             align_y, align_g, align_init = computer['alignments']
