@@ -48,21 +48,6 @@ class Recorder():
     def get(self, key):
         return self.values[key]
 
-class RunningAverageEstimator:
-
-    def __init__(self, gamma=.9):
-        self.estimates = dict()
-        self.gamma = gamma
-
-    def update(self, key, val):
-        if key in self.estimates.keys():
-            self.estimates[key] = (self.gamma * self.estimates[key] +
-                                   (1 - self.gamma) * val)
-        else:
-            self.estimates[key] = val
-
-    def get(self, key):
-        return self.estimates[key]
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Balancing baselines')
@@ -99,7 +84,7 @@ def run_experiment(args):
             args["alpha"]))
     best_checkpoint_file = os.path.join(
         args["output_dir"],
-        "alpha_{}.best.pt".format(args["alpha"]),
+        "{}_alpha_{}.best.pt".format(args["method"],args["alpha"]),
     )
     result_file = os.path.join(
         args["output_dir"],
@@ -123,7 +108,8 @@ def run_experiment(args):
     #    best_selec_val = model.best_selec_val
     print("Training...")
     for epoch in range(last_epoch, args["num_epochs"]):
-        loss = 0
+        running_loss = 0
+        total = 0
         group_losses = torch.zeros(nb_groups * nb_labels)
         totals = torch.zeros(nb_groups * nb_labels)
         print('\nEpoch: %d' % epoch)
@@ -137,17 +123,18 @@ def run_experiment(args):
 
         for idx, (i, x, y, g) in enumerate(tqdm(loaders["tr"])):
             loss_values = model.update(i, x, y, g, epoch).cpu()
-            loss += loss_values.mean().item()
-            norm_loss = loss / (idx+1)
-            # compute group losses
+            running_loss += loss_values.sum()
+            total += len(x)
+             # compute group losses
             groups = (nb_groups * y + g)
             for gi in groups.unique():
                 group_losses[gi] += loss_values[groups == gi].sum()
                 totals[gi] += (groups == gi).sum()
             if idx % 5 == 0:
                 losses, tots = group_losses.tolist(), totals.tolist()
-                recorder.save("av_tr_loss", loss / (idx+1))
+                recorder.save("running_tr_loss", (running_loss / total))
                 recorder.save("group_tr_loss", [c/t if t!=0 else 0 for c, t in zip(losses, tots)])
+                running_loss, total = 0, 0
 
         result = {
             "args": args, "epoch": epoch, "time": time.time() - start_time}
@@ -162,9 +149,6 @@ def run_experiment(args):
             #eff_rank = computer['eff_rank']
             result["acc_" + loader_name] = group_accs
             result["avg_acc_" + loader_name] = avg_acc
-            result["aligny_" + loader_name] = align_y
-            result["aligng_" + loader_name] = align_g
-            result["aligninit_" + loader_name] = align_init
             recorder.save("acc_" + loader_name, group_accs)
             recorder.save("avg_acc_" + loader_name, avg_acc)
             recorder.save("aligny_" + loader_name, align_y)

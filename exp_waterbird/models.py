@@ -36,6 +36,8 @@ class FineTuneNet(torch.nn.Module):
         return self.fc2(h).squeeze(), h
 
 
+
+
 class BertWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -182,7 +184,7 @@ class ERM(torch.nn.Module):
             if self.data_type == "text":
                 self.network.zero_grad()
 
-            #loss_value = loss_value.item()
+            loss_value = loss_value.item()
 
         self.last_epoch = epoch
         return loss_values
@@ -198,6 +200,7 @@ class ERM(torch.nn.Module):
         computer = {}
         nb_groups = loader.dataset.nb_groups
         nb_labels = loader.dataset.nb_labels
+        n_examples = len(loader.dataset)
         corrects = torch.zeros(nb_groups * nb_labels)
         totals = torch.zeros(nb_groups * nb_labels)
         proj_y = torch.zeros(256).cuda()
@@ -236,11 +239,11 @@ class ERM(torch.nn.Module):
                 proj_feat += torch.mm(feat.t(), feat)
                 proj_feat0 += torch.mm(feat0.t(), feat0)
 
-                # compute activation change
-                act_change += torch.eq(torch.sign(feat), torch.sign(feat0)).sum()
+                # compute activation (no)change
+                act_change += torch.eq(torch.sign(feat), torch.sign(feat0)).mean(dim=1)
 
         # compute effective rank
-        ev = torch.linalg.eigvalsh(proj_feat)
+        #ev = torch.linalg.eigvalsh(proj_feat)
         #eff_rank = torch.exp(Categorical(probs = ev/ev.sum()).entropy())
 
         norm_feat = torch.linalg.matrix_norm(proj_feat)
@@ -252,7 +255,7 @@ class ERM(torch.nn.Module):
         corrects, totals = corrects.tolist(), totals.tolist()
         computer['accuracies'] = sum(corrects) / sum(totals), [c/t for c, t in zip(corrects, totals)]
         computer['alignments'] = align_y.item(), align_g.item(), align_init.item()
-        computer['activ_change'] = (act_change / len(loader)).item()
+        computer['activ_change'] = (act_change / n_examples).item()
         #computer['eff_rank'] = eff_rank.item()
 
         self.train()
