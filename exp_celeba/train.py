@@ -18,10 +18,16 @@ import torchvision.datasets.utils as dataset_utils
 import os
 from torch.utils.data import TensorDataset
 from nngeometry.layers import WeightNorm2d
+from pytorch_memlab import MemReporter
 
 import copy
 
 import pickle as pkl
+
+import sys
+sys.path.append('..')
+from plot_utils import *
+from linearization_utils import LinearizationProbe
 
 def makedir_lazy(path):
     if not os.path.exists(path):
@@ -29,7 +35,7 @@ def makedir_lazy(path):
 
 # %%
 
-data_path = '/Tmp/slurm.1459169.0/data'
+data_path = '/Tmp/slurm.1561834.0/data'
 
 # %% 
 
@@ -121,7 +127,7 @@ def get_celeba_gpu(split):
     ys.append(y.to('cuda'))
     gs.append(g.to('cuda'))
 
-    if len(xs) >= 20000:
+    if len(xs) >= 15000:
       break
 
   return TensorDataset(torch.cat(xs), torch.cat(ys), torch.cat(gs))
@@ -207,11 +213,11 @@ def loss_acc_by_group(output, target, gender):
 
     return loss_indivs.mean(), loss_flipped, loss_unflipped, acc_indivs.float().mean(), acc_flipped, acc_unflipped
 
-
 def erm_train(model, model_0, alpha, device, train_loader, train_balanced_loader,
-        test_loader, optimizer, epoch, recorder):
+        test_loader, optimizer, epoch, recorder, linprobe):
     model.train()
     do_stop = 3
+
     for batch_idx, (data, target, gender) in enumerate(train_loader):
         optimizer.zero_grad()
         with torch.no_grad():
@@ -222,11 +228,17 @@ def erm_train(model, model_0, alpha, device, train_loader, train_balanced_loader
         loss.backward()
         optimizer.step()
         if batch_idx % 2 == 0:
-            if batch_idx % 100 == 0:
+            if batch_idx % 50 == 0:
+                recorder.save('loss_100', loss.item())
+                recorder.save('sign_similarity', linprobe.sign_similarity(linprobe.get_signs(), recorder.get('signs0')[0]).item())
+                recorder.save('ntk_alignment', linprobe.kernel_alignment(linprobe.get_ntk(), recorder.get('ntk0')[0]).item())
+                recorder.save('repr_alignment', linprobe.representation_alignment(linprobe.get_last_layer_representation(), recorder.get('repr0')[0]).item())
+
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
                     epoch, batch_idx * len(data), len(train_loader.dataset),
                         100. * batch_idx / len(train_loader), loss.item(), loss_flipped.item(),
                         loss_unflipped.item()))
+
             recorder.save('loss', loss.item())
             recorder.save('acc', acc.item())
             recorder.save('loss_flipped', loss_flipped.item())
@@ -277,9 +289,15 @@ def train_and_test_erm(alpha, model, model_0, all_train_loader, train_balanced_l
         test_loader, device):
     optimizer = optim.SGD(model.parameters(), lr=0.01 / alpha**2, momentum=.9)
     recorder = Recorder()
+    model.train()
+
+    linprobe = LinearizationProbe(model, test_loader)
+    recorder.save('signs0', linprobe.get_signs().detach())
+    recorder.save('ntk0', linprobe.get_ntk().detach())
+    recorder.save('repr0', linprobe.get_last_layer_representation().detach())
 
     for epoch in range(1, 250):
-        do_stop = erm_train(model, model_0, alpha, device, all_train_loader, train_balanced_loader, test_loader, optimizer, epoch, recorder)
+        do_stop = erm_train(model, model_0, alpha, device, all_train_loader, train_balanced_loader, test_loader, optimizer, epoch, recorder, linprobe)
 
         # train_loss, train_acc = test_model(model, model_0, alpha, device, all_train_loader, set_name='train set')
         # test_loss, test_acc = test_model(model, model_0, alpha, device, test_loader)
@@ -293,7 +311,7 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 train_loader = torch.utils.data.DataLoader(celeba_train_ds, batch_size=100,
                                            shuffle=True)
-test_loader = torch.utils.data.DataLoader(celeba_test_ds, batch_size=len(celeba_test_ds),
+test_loader = torch.utils.data.DataLoader(celeba_test_ds, batch_size=100,
                                            shuffle=False)
 train_balanced_loader = torch.utils.data.DataLoader(
     celeba_train_balanced_ds, batch_size=len(celeba_train_balanced_ds), shuffle=False)
@@ -302,7 +320,7 @@ model.fc = torch.nn.Linear(model.fc.in_features, 1)
 model = model.cuda()
 
 # alphas = 10**np.arange(0, 3.5, 1)
-alphas = [0.5, 1, 2]
+alphas = [0.5, 1, 10]
 recorders = []
 
 model_0 = copy.deepcopy(model)
@@ -318,7 +336,7 @@ for alpha in alphas:
 pkl.dump(recorders, open('./recorders.pkl', 'wb'))
 
 # %%
-alphas = [0.5, 1, 2]
+alphas = [0.5, 1, 10]
 recorders = pkl.load(open('recorders.pkl', 'rb'))
 
 # %%
@@ -336,7 +354,7 @@ def smoothen_running_average(x):
 
 no_smoothing = lambda x: x
 
-smoothen = smoothen_moving_average
+smoothen = smoothen_running_average
 
 # %%
 plt.figure(figsize=(10, 10))
@@ -371,6 +389,40 @@ plt.show()
 
 # %%
 
+plt.figure(figsize=(10, 10))
+
+for r, alpha in zip(recorders, alphas):
+    ax = plt.plot(smoothen(r.get('sign_similarity')), label=f'alpha={alpha}')
+plt.xlabel('iterations')
+plt.ylabel('sign_similarity')
+plt.legend()
+# plt.xlim(5e-1, 3)
+# plt.xscale('log')
+# plt.yscale('log')
+plt.grid()
+plt.show()
+
+# %%
+
+plt.figure(figsize=(10, 10))
+
+for r, alpha in zip(recorders, alphas):
+    ax = plt.plot(smoothen(r.get('loss_100')), smoothen(r.get('sign_similarity')), label=f'alpha={alpha}')
+plt.xlabel('train loss')
+plt.ylabel('sign_similarity')
+plt.legend()
+
+xlim = plt.xlim()
+plt.xlim(xlim[1], xlim[0])
+# plt.xlim(5e-1, 3)
+# plt.xscale('log')
+# plt.yscale('log')
+plt.grid()
+plt.savefig(f'figures/signsim_vs_loss.pdf')
+plt.show()
+
+# %%
+
 for prefix in ['trainb', 'test']:
     plt.figure(figsize=(10, 10))
 
@@ -385,6 +437,54 @@ for prefix in ['trainb', 'test']:
     # plt.yscale('log')
     plt.grid()
     plt.savefig(f'figures/{prefix}_loss_spur_vs_actual.pdf')
+    plt.show()
+
+
+# %%
+import statsmodels.api as sm
+def smoothen_lowess(x, y):
+    lowess = sm.nonparametric.lowess(y, x, frac=.15)
+    x = lowess[:, 0]
+    y = lowess[:, 1]
+    return x, y
+
+def rotate(x, y, angle=np.pi/4, origin=(.5, .5)):
+    x = x - origin[0]
+    y = y - origin[1]
+    x_prime = x * np.cos(angle) + y * np.sin(angle)
+    y_prime = -x * np.sin(angle) + y * np.cos(angle)
+    return x_prime, y_prime
+
+def rotate_back(x, y, angle=np.pi/4, origin=(.5, .5)):
+    x_prime = x * np.cos(-angle) + y * np.sin(-angle)
+    y_prime = -x * np.sin(-angle) + y * np.cos(-angle)
+    return x_prime + origin[0], y_prime + origin[1]
+
+def smoothen_xy(x, y):
+    x = np.array(x)
+    y = np.array(y)
+    x, y = rotate(x, y, np.pi/4, (.5, .5))
+    x, y = smoothen_lowess(x, y)
+    x, y = rotate_back(x, y, np.pi/4, (.5, .5))
+    return x, y
+
+
+for prefix in ['trainb', 'test']:
+    plt.figure(figsize=(10, 10))
+
+    for r, alpha in zip(recorders, alphas):
+        x, y = smoothen_xy(r.get(f'acc_unflipped_{prefix}'),
+                           r.get(f'acc_flipped_{prefix}'))
+        plt.plot(x, y, label=f'alpha={alpha}')
+    plt.ylabel(f'{prefix} acc blond and man')
+    plt.xlabel(f'{prefix} acc blond and woman')
+    plt.legend()
+    # plt.ylim(1e-1, 3)
+    # plt.xlim(1e-1, 1)
+    # plt.xscale('log')
+    # plt.yscale('log')
+    plt.grid()
+    plt.savefig(f'figures/{prefix}_acc_spur_vs_actual.pdf')
     plt.show()
 
 # %%
@@ -410,7 +510,7 @@ for prefix in ['trainb', 'test']:
 
 # %%
 
-cmaps = ['spring', 'summer', 'winter']
+cmaps = ['spring', 'summer', 'winter', 'winter']
 
 for prefix in ['trainb', 'test']:
     plt.figure(figsize=(10, 10))
