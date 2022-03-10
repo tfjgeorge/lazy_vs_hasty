@@ -22,7 +22,7 @@ class LinearizationProbe(object):
 
         for h in handles:
             h.remove()
-        return torch.cat(signs, dim=1)
+        return torch.cat(signs, dim=1).bool()
 
     def sign_similarity(self, signs1, signs2):
         return (signs1 == signs2).float().mean()
