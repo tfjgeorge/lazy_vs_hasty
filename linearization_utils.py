@@ -6,13 +6,15 @@ class LinearizationProbe(object):
     def __init__(self, model, dataloader):
         self.model = model
         self.dataloader = dataloader
+        self.buffer = dict()
 
     def get_signs(self):
         handles = []
         signs = []
         def hook(m, input, output):
             signs.append(torch.sign(output).view(output.size(0), -1))
-        for n_, m in self.model.named_modules():
+        for m in self.model.children():
+            print(type(m))
             if type(m) == torch.nn.ReLU:
                 handles.append(m.register_forward_hook(hook))
         with torch.no_grad():

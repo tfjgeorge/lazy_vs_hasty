@@ -18,6 +18,10 @@ from alignment import alignment
 from nngeometry.object import PVector, PushForwardImplicit, PushForwardDense
 from nngeometry.generator import Jacobian
 
+import sys
+sys.path.append('..')
+from linearization_utils import LinearizationProbe
+
 from nngeometry.object.vector import random_pvector
 
 start_time = time.time()
@@ -43,6 +47,7 @@ parser.add_argument('--batch_size', default=125, type=int, help='Batch size')
 parser.add_argument('--batch_norm', action='store_true')
 parser.add_argument('--track_accs', action='store_true', help='Computes accuracy in subsets of trainset binned by cscore')
 parser.add_argument('--track_aligns', action='store_true', help='Computes alignment in subsets of trainset binned by cscore')
+parser.add_argument('--track_lin', action='store_true', help='Computes linearization measures')
 
 parser.add_argument('--fork_from', default=None, type=str, help='Reload checkpoint')
 parser.add_argument('--base_path', default=None, type=str, help='Path to store results')
@@ -87,6 +92,8 @@ def save_checkpoint(iterations, acc_milestone, model, model_0, optimizer, datalo
     if args.diff > 0:
         checkpoint['train_diff_dataloader'] = dataloaders['mini_train_diff']
         checkpoint['train_diff_logits'] = get_logits(dataloaders['mini_train_diff'], model, model_0, alpha)
+        checkpoint['train_easy_dataloader'] = dataloaders['mini_train_easy']
+        checkpoint['train_easy_logits'] = get_logits(dataloaders['mini_train_easy'], model, model_0, alpha)
     checkpoint_path = os.path.join(results_dir, f'checkpoint_{acc_milestone}_{iterations}.pt')
     torch.save(checkpoint, checkpoint_path)
     print(f'saved checkpoint {checkpoint_path}')
@@ -99,7 +106,7 @@ def get_logits(dataloader, model, model_0, alpha):
         return torch.cat(total_logits)
 
 # Training
-def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_iteration=0, next_milestone=10):
+def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_iteration=0, next_milestone=10, lin_probe=None):
     model.train()
     model_0.train() # even if we are not actually training, needs to be put in train mode in order to kill batch norm fluctuations
     iterations = start_iteration
@@ -131,6 +138,8 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
                 if args.diff > 0:
                     to_log['train_diff_acc'], to_log['train_diff_loss'] = \
                         test(dataloaders['mini_train_diff'], model, model_0, alpha)
+                    to_log['train_easy_acc'], to_log['train_easy_loss'] = \
+                        test(dataloaders['mini_train_easy'], model, model_0, alpha)
                 if args.track_accs:
                     to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
                     to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
@@ -269,6 +278,9 @@ for k, v in sorted(args.__dict__.items(), key=lambda a: a[0]):
             name += '%s=%s,' % (k, str(v))
 name = name[:-1]
 
+if args.track_lin and args.fork_from is None:
+    raise RuntimeError('I need a checkpoint to measure linearization quantities')
+
 if args.fork_from is not None:
     checkpoint = torch.load(args.fork_from)
 
@@ -304,8 +316,19 @@ if args.fork_from is not None:
         dataloaders['mini_train_diff'] = checkpoint['train_diff_dataloader']
         train_diff_dataset = dataloaders['mini_train_diff'].dataset
         train_diff_dataset.tensors = (train_diff_dataset.tensors[0], train_diff_dataset.tensors[1], train_diff_logits)
+        train_easy_logits = checkpoint['train_easy_logits']
+        dataloaders['mini_train_easy'] = checkpoint['train_easy_dataloader']
+        train_easy_dataset = dataloaders['mini_train_easy'].dataset
+        train_easy_dataset.tensors = (train_easy_dataset.tensors[0], train_easy_dataset.tensors[1], train_easy_logits)
 
     torch.set_rng_state(checkpoint['torch_rng_state'])
+
+    if args.track_lin:
+        dataloaders['micro_test'] = extract_small_loader(dataloaders['test'], 100, 100)
+        linprobe = LinearizationProbe(model, dataloaders['micro_test'])
+        linprobe.buffer['signs_0'] = linprobe.get_signs().detach()
+        linprobe.buffer['ntk_0'] = linprobe.get_ntk().detach()
+        linprobe.buffer['repr_0'] = linprobe.get_last_layer_representation().detach()
 
 else:
     checkpoint = None
@@ -338,15 +361,13 @@ columns = ['iteration', 'time', 'epoch',
 columns_lin = ['iteration', 'train_lin', 'train_nonlin']
 if args.diff > 0.:
     columns += ['train_diff_acc', 'train_diff_loss']
+    columns += ['train_easy_acc', 'train_easy_loss']
 if args.track_accs or args.track_aligns:
     with open('cifar10-cscores-orig-order.npz', 'rb') as f:
         d = np.load(f)
         cscores = d['scores']
         labels = d['labels']
 
-    # percentiles = [(0, 0.1),
-    #                (.45, .55),
-    #                (.9, 1.)]
     percentiles = [(i*.1, (i+1)*.1) for i in range(10)]
 
     rng = np.random.default_rng(1337)

@@ -6,7 +6,7 @@ from torch.utils.data.sampler import RandomSampler
 
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10, MNIST, KMNIST
-from models import VGG, ResNet18
+from models import VGG, resnet18
 import random
 import numpy as np
 
@@ -201,7 +201,7 @@ def get_task(args, sampler=None):
         if model_name == 'vgg19':
             model = VGG('VGG19', base=args.width, bn=args.batch_norm)
         elif model_name == 'resnet18':
-            model = ResNet18(bn=args.batch_norm)
+            model = resnet18()
             if args.width != 0:
                 raise NotImplementedError
     elif task_name == 'mnist':
