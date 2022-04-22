@@ -15,6 +15,9 @@ class Recorder():
     def get(self, key):
         return self.values[key]
 
+    def len(self, key):
+        return len(self.values[key])
+
 def makedir_lazy(path):
     if not os.path.exists(path):
         os.makedirs(path)

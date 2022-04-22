@@ -43,6 +43,30 @@ pkl_path = os.path.join(save_dir, 'recorder.pkl')
 
 # %%
 
+class ProbeAssistant:
+
+    def __init__(self, init_loss, reduce_factor, gamma=.66):
+        self._loss = init_loss
+        self._reduce_factor = reduce_factor
+        self._gamma = gamma
+        self._next_threshold = init_loss * reduce_factor
+        self._probe = 0
+
+    def record_loss(self, loss):
+        self._loss = self._loss * self._gamma + loss * (1 - self._gamma)
+        if self._loss <= self._next_threshold:
+            self._probe += 1
+            self._next_threshold = self._reduce_factor * self._next_threshold
+
+    def do_probe(self):
+        if self._probe > 0:
+            self._probe -= 1
+            return True
+        return False
+
+
+# %%
+
 def get_celeba_stats(split):
   ds = CelebA(data_path=data_path, split=split)
   attrs = []
@@ -242,7 +266,7 @@ def loss_acc_by_group(output, target, gender, reduce=True):
                 loss_indivs.size(0), count_min, count_maj)
 
 def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
-        test_loader, optimizer, epoch, recorder, linprobe):
+        test_loader, optimizer, epoch, recorder, linprobe, probe_assistant):
     do_stop = 3
 
     for batch_idx, (x, target, gender) in enumerate(train_loader):
@@ -252,24 +276,7 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
             loss_acc_by_group(output, target.float(), gender)
         loss.backward()
         optimizer.step()
-        if batch_idx % 5 == 0:
-            if batch_idx % 100 == 0:
-                recorder.save('loss_100', loss.item())
-                recorder.save('sign_similarity',
-                              linprobe.sign_similarity(linprobe.get_signs(),
-                                                       linprobe.buffer['signs0']).item())
-                recorder.save('ntk_alignment',
-                              linprobe.kernel_alignment(linprobe.get_ntk(),
-                                                        linprobe.buffer['ntk0']).item())
-                recorder.save('repr_alignment',
-                              linprobe.representation_alignment(linprobe.get_last_layer_representation(),
-                                                                linprobe.buffer['repr0']).item())
-
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
-                    epoch, batch_idx * len(x), len(train_loader.dataset),
-                        100. * batch_idx / len(train_loader), loss.item(), loss_flipped.item(),
-                        loss_unflipped.item()))
-
+        if probe_assistant.do_probe() or batch_idx % 100 == 0:
             recorder.save('loss', loss.item())
             recorder.save('acc', acc.item())
             recorder.save('loss_flipped', loss_flipped.item())
@@ -296,6 +303,23 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
             recorder.save('loss_unflipped_trainb', loss_unflipped_test.item())
             recorder.save('acc_flipped_trainb', acc_flipped_test.item())
             recorder.save('acc_unflipped_trainb', acc_unflipped_test.item())
+
+            if len(recorder.len('loss')) % 5 == 0:
+                recorder.save('loss_100', loss.item())
+                recorder.save('sign_similarity',
+                              linprobe.sign_similarity(linprobe.get_signs(),
+                                                       linprobe.buffer['signs0']).item())
+                recorder.save('ntk_alignment',
+                              linprobe.kernel_alignment(linprobe.get_ntk(),
+                                                        linprobe.buffer['ntk0']).item())
+                recorder.save('repr_alignment',
+                              linprobe.representation_alignment(linprobe.get_last_layer_representation(),
+                                                                linprobe.buffer['repr0']).item())
+
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
+                    epoch, batch_idx * len(x), len(train_loader.dataset),
+                        100. * batch_idx / len(train_loader), loss.item(), loss_flipped.item(),
+                        loss_unflipped.item()))
         # if torch.isnan(loss) or loss.cpu() < .08:
         if torch.isnan(loss) or acc.cpu() == 1:
             do_stop -= 1
@@ -314,6 +338,7 @@ def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
     model.train()
 
     model_linear_knob = ModelLinearKnob(model, copy.deepcopy(model), alpha)
+    probe_assistant = ProbeAssistant(np.log(2), .96)
 
     linprobe = LinearizationProbe(model, test_loader)
     linprobe.buffer['signs0'] = linprobe.get_signs().detach()
@@ -323,7 +348,7 @@ def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
     for epoch in range(1, 250):
         do_stop = erm_train(model_linear_knob, device, all_train_loader,
                             train_balanced_loader, test_loader, optimizer, epoch, recorder,
-                            linprobe)
+                            linprobe, probe_assistant)
 
         if do_stop:
             break
