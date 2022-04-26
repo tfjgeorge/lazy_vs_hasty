@@ -1,4 +1,7 @@
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from scipy.interpolate import interp1d
+import numpy as np
 
 padding = .1
 linewidth = 6.75133
@@ -13,3 +16,61 @@ def create_figure(n_per_row, ratio):
 
 def save_fig(figure, path):
     figure.savefig(path, bbox_inches='tight', padding=padding)
+
+def smoothen_lowess(x, y):
+    lowess = sm.nonparametric.lowess(y, x, frac=.15)
+    x = lowess[:, 0]
+    y = lowess[:, 1]
+    return x, y
+
+def rotate(x, y, angle=np.pi/4, origin=(.5, .5)):
+    x = x - origin[0]
+    y = y - origin[1]
+    x_prime = x * np.cos(angle) + y * np.sin(angle)
+    y_prime = -x * np.sin(angle) + y * np.cos(angle)
+    return x_prime, y_prime
+
+def rotate_back(x, y, angle=np.pi/4, origin=(.5, .5)):
+    x_prime = x * np.cos(-angle) + y * np.sin(-angle)
+    y_prime = -x * np.sin(-angle) + y * np.cos(-angle)
+    return x_prime + origin[0], y_prime + origin[1]
+
+def smoothen_xy(x, y):
+    x = np.array(x)
+
+    x_new = np.linspace(x.min(), x.max(), 200)
+
+
+    x = np.maximum.accumulate(x)
+    y = np.array(y)
+    # x, y = rotate(x, y, np.pi/4, (.5, .5))
+    y = sm.nonparametric.lowess(y, x, frac=.15, xvals=x_new)
+    # x, y = rotate_back(x, y, np.pi/4, (.5, .5))
+
+    # f = interp1d(x, y, bounds_error=False)
+
+    # y_new = f(x_new)
+    
+    return x_new, y
+
+
+def smoothen_interpolate(x, y):
+    x_new = np.linspace(x.min(), x.max(), 200)
+    f = interp1d(x, y, bounds_error=False)
+    y_new = f(x_new)
+    return x_new, y_new
+
+
+def smoothen_moving_average(N):
+    return lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
+
+def smoothen_running_average(x):
+  gamma = .9
+  o = []
+  ra = x[0]
+  for xi in x:
+    ra = gamma * ra + (1 - gamma) * xi
+    o.append(ra)
+  return np.array(o)
+
+no_smoothing = lambda x: x

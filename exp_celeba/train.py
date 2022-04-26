@@ -14,11 +14,14 @@ from torch.autograd import grad
 from torchvision import transforms, models
 # from torchvision import datasets
 from datasets import CelebA
+import logging
+logging.basicConfig(level=logging.INFO)
 import torchvision.datasets.utils as dataset_utils
 import os
 from torch.utils.data import TensorDataset
 from nngeometry.layers import WeightNorm2d
 from pytorch_memlab import MemReporter
+import argparse
 
 import copy
 
@@ -28,42 +31,22 @@ import sys
 sys.path.append('..')
 from plot_utils import *
 from linearization_utils import LinearizationProbe, ModelLinearKnob
-from train_utils import Recorder
+from train_utils import Recorder, ProbeAssistant
 
 # %%
 
-slurm_tmpdir = '/Tmp/slurm.1750198.0' #os.environ['SLURM_TMPDIR']
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
+
+if 'SLURM_TMPDIR' in os.environ:
+    slurm_tmpdir = os.environ['SLURM_TMPDIR']
+else:
+    slurm_tmpdir = '/Tmp/slurm.1760019.0'
 save_dir = '/network/projects/g/georgeth/linvsnonlin/celeba'
 
 data_path = os.path.join(slurm_tmpdir, 'data')
-pkl_path = os.path.join(save_dir, 'recorder.pkl')
 
-# data_path = '/Tmp/slurm.1610855.0/data'
-# pkl_path = '/Tmp/slurm.1610855.0/recorder.pkl'
-
-# %%
-
-class ProbeAssistant:
-
-    def __init__(self, init_loss, reduce_factor, gamma=.66):
-        self._loss = init_loss
-        self._reduce_factor = reduce_factor
-        self._gamma = gamma
-        self._next_threshold = init_loss * reduce_factor
-        self._probe = 0
-
-    def record_loss(self, loss):
-        self._loss = self._loss * self._gamma + loss * (1 - self._gamma)
-        if self._loss <= self._next_threshold:
-            self._probe += 1
-            self._next_threshold = self._reduce_factor * self._next_threshold
-
-    def do_probe(self):
-        if self._probe > 0:
-            self._probe -= 1
-            return True
-        return False
-
+PATIENCE_MAX = 12
 
 # %%
 
@@ -160,24 +143,9 @@ def get_celeba_gpu(split):
 
   return TensorDataset(torch.cat(xs), torch.cat(ys), torch.cat(gs))
 
+logging.info("Loading CelebA onto GPU")
 celeba_train_ds = get_celeba_gpu('tr')
 celeba_train_balanced_ds = get_balanced_dataset('tr', 150)
-
-# %% 
-
-dl = torch.utils.data.DataLoader(celeba_train_ds, batch_size=1, shuffle=False)
-for i, (x, y, g) in enumerate(iter(dl)):
-  plt.figure()
-  plt.imshow(x.cpu()[0].permute(1, 2, 0))
-  plt.title(f'y={y.item()}, g={g.item()}')
-  plt.show()
-  if i > 3:
-    break
-
-# %% [markdown]
-# ## Define neural network
-# 
-# The paper uses an MLP but a Convnet works fine too.
 
 # %%
 
@@ -211,11 +179,6 @@ def loss_acc_by_group_dl(model_linear_knob, loader):
     return (loss_s / count, loss_act_s / count_act, loss_spu_s / count_spu,
             acc_s / count, acc_act_s / count_act, acc_spu_s / count_spu)
 
-
-# %% [markdown]
-# ## Test ERM as a baseline
-# 
-# Using ERM as a baseline, we expect to train a neural network that uses color instead of the actual digit to classify, completely failing on the test set when the colors are switched.
 
 # %%
 def test_model(model, model_0, alpha, device, test_loader, set_name="test set"):
@@ -267,7 +230,7 @@ def loss_acc_by_group(output, target, gender, reduce=True):
 
 def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
         test_loader, optimizer, epoch, recorder, linprobe, probe_assistant):
-    do_stop = 3
+    do_stop = PATIENCE_MAX
 
     for batch_idx, (x, target, gender) in enumerate(train_loader):
         optimizer.zero_grad()
@@ -275,7 +238,10 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
         loss, loss_flipped, loss_unflipped, acc, acc_flipped, acc_unflipped = \
             loss_acc_by_group(output, target.float(), gender)
         loss.backward()
+
         optimizer.step()
+
+        probe_assistant.record_loss(loss.item())
         if probe_assistant.do_probe() or batch_idx % 100 == 0:
             recorder.save('loss', loss.item())
             recorder.save('acc', acc.item())
@@ -304,7 +270,7 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
             recorder.save('acc_flipped_trainb', acc_flipped_test.item())
             recorder.save('acc_unflipped_trainb', acc_unflipped_test.item())
 
-            if len(recorder.len('loss')) % 5 == 0:
+            if recorder.len('loss') % 5 == 1:
                 recorder.save('loss_100', loss.item())
                 recorder.save('sign_similarity',
                               linprobe.sign_similarity(linprobe.get_signs(),
@@ -320,14 +286,13 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
                     epoch, batch_idx * len(x), len(train_loader.dataset),
                         100. * batch_idx / len(train_loader), loss.item(), loss_flipped.item(),
                         loss_unflipped.item()))
-        # if torch.isnan(loss) or loss.cpu() < .08:
         if torch.isnan(loss) or acc.cpu() == 1:
             do_stop -= 1
             print(f'patience: {do_stop}')
             if do_stop == 0:
                 return True
         else:
-            do_stop = 3
+            do_stop = PATIENCE_MAX
     return False
 
 
@@ -345,7 +310,7 @@ def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
     linprobe.buffer['ntk0'] = linprobe.get_ntk().detach()
     linprobe.buffer['repr0'] = linprobe.get_last_layer_representation().detach()
 
-    for epoch in range(1, 250):
+    for epoch in range(1, 750):
         do_stop = erm_train(model_linear_knob, device, all_train_loader,
                             train_balanced_loader, test_loader, optimizer, epoch, recorder,
                             linprobe, probe_assistant)
@@ -354,40 +319,46 @@ def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
             break
     return recorder
 
-use_cuda = torch.cuda.is_available()
-device = torch.device("cuda" if use_cuda else "cpu")
+def main(pkl_path):
+    train_loader = torch.utils.data.DataLoader(celeba_train_ds, batch_size=100,
+                                            shuffle=True)
+    test_loader = torch.utils.data.DataLoader(celeba_test_ds, batch_size=150,
+                                            shuffle=False)
+    train_balanced_loader = torch.utils.data.DataLoader(
+        celeba_train_balanced_ds, batch_size=len(celeba_train_balanced_ds), shuffle=False)
+    model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
+    model.fc = torch.nn.Linear(model.fc.in_features, 1)
+    model = model.cuda()
 
-train_loader = torch.utils.data.DataLoader(celeba_train_ds, batch_size=100,
-                                           shuffle=True)
-test_loader = torch.utils.data.DataLoader(celeba_test_ds, batch_size=150,
-                                          shuffle=False)
-train_balanced_loader = torch.utils.data.DataLoader(
-    celeba_train_balanced_ds, batch_size=len(celeba_train_balanced_ds), shuffle=False)
-model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
-model.fc = torch.nn.Linear(model.fc.in_features, 1)
-model = model.cuda()
+    # alphas = 10**np.arange(0, 3.5, 1)
+    alphas = [0.5, 1, 100]
+    recorders = []
 
-# alphas = 10**np.arange(0, 3.5, 1)
-alphas = [0.5, 1, 10]
-recorders = []
+    for alpha in alphas:
+        logging.info(f"Starting training for alpha = {alpha}")
+        model_copy = copy.deepcopy(model)
+        recorder = train_and_test_erm(alpha, model_copy, train_loader, train_balanced_loader, test_loader, device)
+        recorders.append(recorder)
 
-for alpha in alphas:
-    print(f'------ alpha = {alpha}')
-    model_copy = copy.deepcopy(model)
-    recorder = train_and_test_erm(alpha, model_copy, train_loader, train_balanced_loader, test_loader, device)
-    recorders.append(recorder)
+    pkl.dump(recorders, open(pkl_path, 'wb'))
 
 # %%
 
-pkl.dump(recorders, open(pkl_path, 'wb'))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('--save', default=None, type=str, help='Path to store results')
+    args = parser.parse_args()
+
+    main(args.save)
+    exit()
 
 # %%
 # alphas = [0.5, 1, 10]
 # recorders = pkl.load(open(pkl_path, 'rb'))
 
 # %%
-N = 25
-smoothen_moving_average = lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
+def smoothen_moving_average(N):
+    return lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
 
 def smoothen_running_average(x):
   gamma = .9
