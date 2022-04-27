@@ -143,7 +143,7 @@ def get_celeba_gpu(split):
 
   return TensorDataset(torch.cat(xs), torch.cat(ys), torch.cat(gs))
 
-logging.info("Loading CelebA onto GPU")
+logging.info("Loading CelebA to GPU")
 celeba_train_ds = get_celeba_gpu('tr')
 celeba_train_balanced_ds = get_balanced_dataset('tr', 150)
 
@@ -233,13 +233,12 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
     do_stop = PATIENCE_MAX
 
     for batch_idx, (x, target, gender) in enumerate(train_loader):
+
+        # for measurement only (update is done below)
         optimizer.zero_grad()
-        output = model_linear_knob.pred(x)
+        output = model_linear_knob.pred_nograd(x)
         loss, loss_flipped, loss_unflipped, acc, acc_flipped, acc_unflipped = \
             loss_acc_by_group(output, target.float(), gender)
-        loss.backward()
-
-        optimizer.step()
 
         probe_assistant.record_loss(loss.item())
         if probe_assistant.do_probe() or batch_idx % 100 == 0:
@@ -293,6 +292,15 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
                 return True
         else:
             do_stop = PATIENCE_MAX
+
+        # update
+        optimizer.zero_grad()
+        output = model_linear_knob.pred(x)
+        loss, loss_flipped, loss_unflipped, acc, acc_flipped, acc_unflipped = \
+            loss_acc_by_group(output, target.float(), gender)
+        loss.backward()
+        optimizer.step()
+
     return False
 
 
