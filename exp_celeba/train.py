@@ -13,7 +13,7 @@ import torch.optim as optim
 from torch.autograd import grad
 from torchvision import transforms, models
 # from torchvision import datasets
-from datasets import CelebA
+from datasets import CelebA, Waterbirds
 import logging
 logging.basicConfig(level=logging.INFO)
 import torchvision.datasets.utils as dataset_utils
@@ -38,20 +38,33 @@ from train_utils import Recorder, ProbeAssistant
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
+# CelebA:
+
+ds_suffix = 'celeba'
+DS = CelebA
+
+# Waterbirds:
+
+ds_suffix = 'waterbirds'
+DS = Waterbirds
+
+##
+
 if 'SLURM_TMPDIR' in os.environ:
     slurm_tmpdir = os.environ['SLURM_TMPDIR']
 else:
-    slurm_tmpdir = '/Tmp/slurm.1760019.0'
-save_dir = '/network/projects/g/georgeth/linvsnonlin/celeba'
+    slurm_tmpdir = '/Tmp/slurm.1833489.0'
+save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
 
 data_path = os.path.join(slurm_tmpdir, 'data')
 
 PATIENCE_MAX = 12
 
+
 # %%
 
 def get_celeba_stats(split):
-  ds = CelebA(data_path=data_path, split=split)
+  ds = DS(data_path=data_path, split=split)
   attrs = []
   dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
   for i, x, y, g in iter(dl):
@@ -61,16 +74,19 @@ def get_celeba_stats(split):
   return np.array(attrs)
 
 if False:
-    stats = get_celeba_stats('te')
+    for ds in ['train', 'test']:
 
-    print(f'#blond persons: {(stats[:, 1] == 1).sum()}')
-    print(f'#not blond persons: {(stats[:, 1] == 0).sum()}')
-    print(f'#men: {(stats[:, 2] == 1).sum()}')
-    print(f'#blond men: {((stats[:, 2] == 1) & (stats[:, 1] == 1)).sum()}')
-    print(f'#women: {(stats[:, 2] == 0).sum()}')
-    print(f'#blond women: {((stats[:, 2] == 0) & (stats[:, 1] == 1)).sum()}')
+        print(f'{ds} dataset')
+        stats = get_celeba_stats(ds[:2])
 
-## TEST
+        print(f'#blond persons: {(stats[:, 1] == 1).sum()}')
+        print(f'#not blond persons: {(stats[:, 1] == 0).sum()}')
+        print(f'#men: {(stats[:, 2] == 1).sum()}')
+        print(f'#blond men: {((stats[:, 2] == 1) & (stats[:, 1] == 1)).sum()}')
+        print(f'#women: {(stats[:, 2] == 0).sum()}')
+        print(f'#blond women: {((stats[:, 2] == 0) & (stats[:, 1] == 1)).sum()}')
+
+## CelebA TEST
 #blond persons: 2660
 #not blond persons: 17302
 #men: 7715
@@ -78,7 +94,7 @@ if False:
 #women: 12247
 #blond women: 2480
 
-## TRAIN
+## CelebA TRAIN
 #blond persons: 24267
 #not blond persons: 138503
 #men: 68261
@@ -86,10 +102,26 @@ if False:
 #women: 94509
 #blond women: 22880
 
+## Waterbirds TRAIN
+#blond persons: 1113
+#not blond persons: 3682
+#men: 1241
+#blond men: 1057
+#women: 3554
+#blond women: 56
+
+## Waterbirds TEST
+#blond persons: 1284
+#not blond persons: 4510
+#men: 2897
+#blond men: 642
+#women: 2897
+#blond women: 642
+
 # %%
 
 def get_balanced_dataset(split, n):
-    ds = CelebA(data_path=data_path, split=split)
+    ds = DS(data_path=data_path, split=split)
     attrs = []
     dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
     blond_men = []
@@ -129,7 +161,7 @@ celeba_test_ds = get_balanced_dataset('te', 150)
 # %%
 
 def get_celeba_gpu(split):
-  ds = CelebA(data_path=data_path, split=split)
+  ds = DS(data_path=data_path, split=split)
   xs, ys, gs = [], [], []
   dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
   for i, x, y, g in iter(dl):
@@ -143,7 +175,7 @@ def get_celeba_gpu(split):
 
   return TensorDataset(torch.cat(xs), torch.cat(ys), torch.cat(gs))
 
-logging.info("Loading CelebA to GPU")
+logging.info(f"Loading {ds_suffix} to GPU")
 celeba_train_ds = get_celeba_gpu('tr')
 celeba_train_balanced_ds = get_balanced_dataset('tr', 150)
 

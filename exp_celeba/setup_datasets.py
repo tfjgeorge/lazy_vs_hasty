@@ -13,10 +13,10 @@ import gdown
 import pandas as pd
 from six import remove_move
 
+def download(url, dst):
+    gdown.download(url, dst, quiet=False)
 
-def download_and_extract(url, dst, remove=True):
-    # gdown.download(url, dst, quiet=False)
-
+def extract(dst, remove=True):
     if dst.endswith(".tar.gz"):
         tar = tarfile.open(dst, "r:gz")
         tar.extractall(os.path.dirname(dst))
@@ -36,38 +36,39 @@ def download_and_extract(url, dst, remove=True):
         os.remove(dst)
 
 
-def download_datasets(data_path):
+def download_datasets(data_path, celeba, waterbirds):
     os.makedirs(data_path, exist_ok=True)
 
-    logging.info("Downloading CelebA")
-    celeba_dir = os.path.join(data_path, "celeba")
-    os.makedirs(celeba_dir, exist_ok=True)
-    download_and_extract(
-        "https://drive.google.com/uc?id=1mb1R6dXfWbvk3DnlWOBO8pDeoBKOcLE6",
-        os.path.join(celeba_dir, "img_align_celeba.zip"),
-        remove=False
-    )
-    download_and_extract(
-        "https://drive.google.com/uc?id=1acn0-nE4W7Wa17sIkKB0GtfW4Z41CMFB",
-        os.path.join(celeba_dir, "list_eval_partition.txt"),
-        remove=False
-    )
-    download_and_extract(
-        "https://drive.google.com/uc?id=11um21kRUuaUNoMl59TCe2fb01FNjqNms",
-        os.path.join(celeba_dir, "list_attr_celeba.txt"),
-        remove=False
-    )
-
+    if celeba:
+        logging.info("Extracting CelebA")
+        celeba_dir = os.path.join(data_path, "celeba")
+        os.makedirs(celeba_dir, exist_ok=True)
+        extract(
+            "https://drive.google.com/uc?id=1mb1R6dXfWbvk3DnlWOBO8pDeoBKOcLE6",
+            os.path.join(celeba_dir, "img_align_celeba.zip"),
+            remove=False
+        )
+        extract(
+            "https://drive.google.com/uc?id=1acn0-nE4W7Wa17sIkKB0GtfW4Z41CMFB",
+            os.path.join(celeba_dir, "list_eval_partition.txt"),
+            remove=False
+        )
+        extract(
+            "https://drive.google.com/uc?id=11um21kRUuaUNoMl59TCe2fb01FNjqNms",
+            os.path.join(celeba_dir, "list_attr_celeba.txt"),
+            remove=False
+        )
+    if waterbirds:
+        logging.info("Downloading and extracting Waterbirds")
+        water_birds_dir = os.path.join(data_path, "waterbirds")
+        os.makedirs(water_birds_dir, exist_ok=True)
+        water_birds_dir_tar = os.path.join(water_birds_dir, "waterbirds.tar.gz")
+        download(
+            "https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz",
+            water_birds_dir_tar,
+        )
+        extract(water_birds_dir_tar)
     return
-
-    logging.info("Downloading Waterbirds")
-    water_birds_dir = os.path.join(data_path, "waterbirds")
-    os.makedirs(water_birds_dir, exist_ok=True)
-    water_birds_dir_tar = os.path.join(water_birds_dir, "waterbirds.tar.gz")
-    download_and_extract(
-        "https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz",
-        water_birds_dir_tar,
-    )
 
     logging.info("Downloading MultiNLI")
     multinli_dir = os.path.join(data_path, "multinli")
@@ -211,11 +212,25 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--celeba",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--waterbirds",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
 
     if args.download:
-        download_datasets(args.data_path)
-    generate_metadata_celeba(args.data_path)
-    # generate_metadata_waterbirds(args.data_path)
+        download_datasets(args.data_path,
+                          celeba=args.celeba,
+                          waterbirds=args.waterbirds)
+    if args.celeba:
+        generate_metadata_celeba(args.data_path)
+    if args.waterbirds:
+        generate_metadata_waterbirds(args.data_path)
     # generate_metadata_civilcomments(args.data_path)
     # generate_metadata_multinli(args.data_path)

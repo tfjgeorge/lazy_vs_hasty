@@ -11,16 +11,22 @@ from plot_utils import smoothen_running_average
 
 # %%
 
-fig_path = '/network/projects/g/georgeth/linvsnonlin/celeba_figures/'
+ds_suffix = 'celeba'
+ds_suffix = 'waterbirds'
 
-save_dir = '/network/projects/g/georgeth/linvsnonlin/celeba'
-f_name = 'recorder_longer5'
+fig_path = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}_figures/'
+
+save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
+f_name = 'recorder_1'
 pkl_path = os.path.join(save_dir, f'{f_name}.pkl')
 
 
 # %%
 alphas = [0.5, 1, 100]
 recorders = pkl.load(open(pkl_path, 'rb'))
+
+plot_width = .33
+plot_ratio = 1.2
 
 # %%
 
@@ -58,17 +64,17 @@ def plot(axis, x, y, label):
     # axis.scatter(x, y, alpha=1, marker='.')
 
     x_s, y_s = smoothen_xy(x, y)
-    axis.plot(x_s, y_s, label=f'alpha={alpha}', alpha=.8)
+    axis.plot(x_s, y_s, label=label, alpha=.8)
 
 # %%
 for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
-    f = create_figure(3, 1)
+    f = create_figure(plot_width, plot_ratio)
 
     for r, alpha in zip(recorders, alphas):
         x, y = r.get(f'acc_unflipped_{ds_name}'), r.get(f'acc_flipped_{ds_name}')
         x = np.insert(x, 0, .5)
         y = np.insert(y, 0, .5)
-        plot(plt.gca(), x, y, f'alpha={alpha}')
+        plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
 
     plt.ylabel(f'{name_readable} acc. balanced man')
     plt.xlabel(f'{name_readable} acc. balanced woman')
@@ -82,13 +88,13 @@ for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
     plt.show()
 
 # %%
-f = create_figure(3, 1)
+f = create_figure(plot_width, plot_ratio)
 
 for r, alpha in zip(recorders, alphas):
     x, y = r.get(f'acc'), r.get(f'acc_test')
     x = np.insert(x, 0, .5)
     y = np.insert(y, 0, .5)
-    plot(plt.gca(), x, y, f'alpha={alpha}')
+    plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
     
 plt.xlabel('acc train')
 plt.ylabel('acc test')
@@ -103,7 +109,7 @@ plt.show()
 
 # %%
 
-f = create_figure(3, 1)
+f = create_figure(plot_width, plot_ratio)
 colors = dict()
 
 for r, alpha in zip(recorders, alphas):
@@ -128,7 +134,7 @@ for r, alpha in zip(recorders, alphas):
     plt.gca().plot(x_s, y_s, marker='d', color=c)
 
 for alpha, c in colors.items():
-    plt.plot([], [], color=c, label=f'alpha={alpha}')
+    plt.plot([], [], color=c, label=f'$\\alpha={alpha}$')
 plt.plot([], [], color='black', marker='x', label=f'sign similarity')
 plt.plot([], [], color='black', marker='^', label=f'ntk alignment')
 plt.plot([], [], color='black', marker='d', label=f'repr. kernel align.')
