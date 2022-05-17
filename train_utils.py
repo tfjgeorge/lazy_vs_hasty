@@ -42,3 +42,16 @@ class ProbeAssistant:
             self._probe -= 1
             return True
         return False
+
+def create_fname(d, exclude=[], replace=dict()):
+    name = ''
+    for k, v in sorted(d.items(), key=lambda a: a[0]):
+        if k in exclude:
+            continue
+        if v is not False:
+            if k in replace.keys():
+                if v is not None:
+                    name += replace[k] + ','
+            else:
+                name += '%s=%s,' % (k, str(v))
+    return name[:-1]

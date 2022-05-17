@@ -15,7 +15,7 @@ from six import remove_move
 
 
 def download_and_extract(url, dst, remove=True):
-    gdown.download(url, dst, quiet=False)
+    # gdown.download(url, dst, quiet=False)
 
     if dst.endswith(".tar.gz"):
         tar = tarfile.open(dst, "r:gz")

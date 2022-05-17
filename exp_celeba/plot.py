@@ -14,7 +14,7 @@ from plot_utils import smoothen_running_average
 fig_path = '/network/projects/g/georgeth/linvsnonlin/celeba_figures/'
 
 save_dir = '/network/projects/g/georgeth/linvsnonlin/celeba'
-f_name = 'recorder_longer4'
+f_name = 'recorder_longer5'
 pkl_path = os.path.join(save_dir, f'{f_name}.pkl')
 
 
@@ -48,8 +48,8 @@ def smoothen_xy(x, y):
     x = np.array(x)
     y = np.array(y)
     # x, y = rotate(x, y, np.pi/4, (.5, .5))
-    x = smoothen_running_average(x)
-    y = smoothen_running_average(y)
+    x = smoothen_running_average(.9)(x)
+    y = smoothen_running_average(.9)(y)
     # x, y = rotate_back(x, y, np.pi/4, (.5, .5))
     return x, y
 

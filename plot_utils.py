@@ -4,18 +4,26 @@ from scipy.interpolate import interp1d
 import numpy as np
 
 padding = .1
-linewidth = 6.75133
+linewidth = 5.50107
 
 plt.rcParams['font.size'] = 8
 plt.rcParams['legend.fontsize'] = 7
+plt.rcParams['axes.linewidth'] = .5
+plt.rcParams['patch.linewidth'] = .5
+plt.rcParams['axes.labelsize'] = 5
+plt.rcParams['xtick.labelsize'] = 5
+plt.rcParams['ytick.labelsize'] = 5
+plt.rcParams['legend.fontsize'] = 5
 
-def create_figure(n_per_row, ratio):
-    fig_width = linewidth / n_per_row - 2 * padding
+def create_figure(width, ratio):
+    # width is in proportion of whole line_width
+    fig_width = linewidth * width - 2 * padding
     fig_height = fig_width / ratio + 2 * padding
-    return plt.figure(figsize=(fig_width, fig_height))
+    return plt.figure(figsize=(fig_width, fig_height),
+                    constrained_layout=True)
 
 def save_fig(figure, path):
-    figure.savefig(path, bbox_inches='tight', padding=padding)
+    figure.savefig(path, bbox_inches='tight', padding=padding, dpi=1000)
 
 def smoothen_lowess(x, y):
     lowess = sm.nonparametric.lowess(y, x, frac=.15)
@@ -64,13 +72,14 @@ def smoothen_interpolate(x, y):
 def smoothen_moving_average(N):
     return lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
 
-def smoothen_running_average(x):
-  gamma = .9
-  o = []
-  ra = x[0]
-  for xi in x:
-    ra = gamma * ra + (1 - gamma) * xi
-    o.append(ra)
-  return np.array(o)
+def smoothen_running_average(gamma):
+    def _f(x):
+        o = []
+        ra = x[0]
+        for xi in x:
+            ra = gamma * ra + (1 - gamma) * xi
+            o.append(ra)
+        return np.array(o)
+    return _f
 
 no_smoothing = lambda x: x
