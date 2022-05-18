@@ -15,6 +15,7 @@ if 'SLURM_TMPDIR' in os.environ:
     default_datapath = os.path.join(os.environ['SLURM_TMPDIR'], 'data')
 elif 'SLURM_JOB_ID' in os.environ:
     default_datapath = os.path.join('/Tmp', f'slurm.{os.environ["SLURM_JOB_ID"]}.0', 'data')
+default_datapath = '/network/datasets/torchvision'
 
 def to_tensordataset(dataset, logits=None):
     d = next(iter(DataLoader(dataset,
@@ -198,8 +199,8 @@ def get_task(args, sampler=None):
             raise NotImplementedError
         dataloaders['train'], dataloaders['train_deterministic'], dataloaders['test'] = \
             get_cifar10(args, sampler=sampler)
-        if model_name == 'vgg19':
-            model = VGG('VGG19', base=args.width, bn=args.batch_norm)
+        if model_name == 'vgg11':
+            model = VGG('VGG11', base=args.width, bn=args.batch_norm)
         elif model_name == 'resnet18':
             model = resnet18()
             if args.width != 0:

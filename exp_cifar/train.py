@@ -29,7 +29,7 @@ start_time = time.time()
 parser = argparse.ArgumentParser(description='Compute various NTK alignment quantities')
 
 parser.add_argument('--task', required=True, type=str, help='Task',
-                    choices=['mnist_fc', 'cifar10_vgg19', 'cifar10_resnet18'])
+                    choices=['mnist_fc', 'cifar10_vgg11', 'cifar10_resnet18'])
 parser.add_argument('--depth', default=0, type=int, help='network depth (only works with MNIST MLP)')
 parser.add_argument('--width', default=0, type=int, help='network width (MLP) or base for channels (VGG)')
 
@@ -145,6 +145,11 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
                     to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
                 if args.track_aligns:
                     to_log['train_aligns'] = align_binned(dataloaders['train_binned'], model)
+                if args.track_lin:
+                    to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(), linprobe.buffer['signs_0']).item()
+                    to_log['ntk_alignment'] = linprobe.kernel_alignment(linprobe.get_ntk(), linprobe.buffer['ntk_0']).item()
+                    to_log['repr_alignment'] = linprobe.representation_alignment(linprobe.get_last_layer_representation(), linprobe.buffer['repr_0']).item()
+
                 log.loc[len(log)] = to_log
                 print(log.loc[len(log) - 1])
 
@@ -265,22 +270,14 @@ def mkdir(p, m=None):
             print(m)
         pass
 
-name = ''
-excludes = ['base_path']
-for k, v in sorted(args.__dict__.items(), key=lambda a: a[0]):
-    if k in excludes:
-        continue
-    if v is not False:
-        if k == 'fork_from':
-            if v is not None:
-                name += 'fork=True,'
-        else:
-            name += '%s=%s,' % (k, str(v))
-name = name[:-1]
+from train_utils import create_fname
+name = create_fname(args.__dict__, exclude=['base_path'],
+                    replace={'fork_from': 'fork=True'})
 
 if args.track_lin and args.fork_from is None:
     raise RuntimeError('I need a checkpoint to measure linearization quantities')
 
+linprobe = None
 if args.fork_from is not None:
     checkpoint = torch.load(args.fork_from)
 
@@ -325,7 +322,7 @@ if args.fork_from is not None:
 
     if args.track_lin:
         dataloaders['micro_test'] = extract_small_loader(dataloaders['test'], 100, 100)
-        linprobe = LinearizationProbe(model, dataloaders['micro_test'])
+        linprobe = LinearizationProbe(model, dataloaders['micro_test'], n_output=10)
         linprobe.buffer['signs_0'] = linprobe.get_signs().detach()
         linprobe.buffer['ntk_0'] = linprobe.get_ntk().detach()
         linprobe.buffer['repr_0'] = linprobe.get_last_layer_representation().detach()
@@ -381,8 +378,11 @@ if args.track_accs or args.track_aligns:
         columns += ['test_accs', 'test_losses']
     if args.track_aligns:
         columns += ['train_aligns']
+    if args.track_lin:
+        columns += ['sign_similarity', 'ntk_alignment', 'repr_alignment']
 
 log = pd.DataFrame(columns=columns)
 lin_log = pd.DataFrame(columns=columns_lin)
 train(args, log, lin_log, model, model_0, optimizer, args.alpha, rae,
-      start_iteration=start_iteration, next_milestone=next_milestone)
+      start_iteration=start_iteration, next_milestone=next_milestone,
+      lin_probe=linprobe)
