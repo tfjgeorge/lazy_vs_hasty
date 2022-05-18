@@ -53,7 +53,7 @@ DS = Waterbirds
 if 'SLURM_TMPDIR' in os.environ:
     slurm_tmpdir = os.environ['SLURM_TMPDIR']
 else:
-    slurm_tmpdir = '/Tmp/slurm.1833489.0'
+    slurm_tmpdir = '/Tmp/slurm.1836774.0'
 save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
 
 data_path = os.path.join(slurm_tmpdir, 'data')
@@ -214,7 +214,6 @@ def loss_acc_by_group_dl(model_linear_knob, loader):
 
 # %%
 def test_model(model, model_0, alpha, device, test_loader, set_name="test set"):
-    model.eval()
     test_loss = 0
     correct = 0
     with torch.no_grad():
@@ -237,8 +236,12 @@ def test_model(model, model_0, alpha, device, test_loader, set_name="test set"):
 
 def loss_acc_by_group(output, target, gender, reduce=True):
     #gender: 1=man, 0=woman
-    switch_min = gender #* target
-    switch_maj = (1 - gender) #* target
+    if ds_suffix == 'celeba':
+        switch_min = gender #* target
+        switch_maj = (1 - gender) #* target
+    elif ds_suffix == 'waterbirds':
+        switch_min = gender * (1 - target) + (1 - gender) * target
+        switch_maj = 1 - switch_min
 
     count_min = switch_min.sum()
     count_maj = switch_maj.sum()
@@ -338,9 +341,8 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
 
 def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
         test_loader, device):
-    optimizer = optim.SGD(model.parameters(), lr=0.01 / alpha**2, momentum=.9)
+    optimizer = optim.SGD(model.parameters(), lr=0.001 / alpha**2, momentum=.9)
     recorder = Recorder()
-    model.train()
 
     model_linear_knob = ModelLinearKnob(model, copy.deepcopy(model), alpha)
     probe_assistant = ProbeAssistant(np.log(2), .96)
@@ -366,8 +368,14 @@ def main(pkl_path):
                                             shuffle=False)
     train_balanced_loader = torch.utils.data.DataLoader(
         celeba_train_balanced_ds, batch_size=len(celeba_train_balanced_ds), shuffle=False)
-    model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
-    model.fc = torch.nn.Linear(model.fc.in_features, 1)
+    if ds_suffix == 'celeba':
+        model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
+        model.fc = torch.nn.Linear(model.fc.in_features, 1)
+        model.train()
+    elif ds_suffix == 'waterbirds':
+        model = models.resnet.resnet18(pretrained=True)
+        model.fc = torch.nn.Linear(model.fc.in_features, 1)
+        model.eval()
     model = model.cuda()
 
     # alphas = 10**np.arange(0, 3.5, 1)

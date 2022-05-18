@@ -11,14 +11,23 @@ from plot_utils import smoothen_running_average
 
 # %%
 
-ds_suffix = 'celeba'
+# ds_suffix = 'celeba'
 ds_suffix = 'waterbirds'
 
 fig_path = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}_figures/'
 
 save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
-f_name = 'recorder_1'
+f_name = 'r_smalllr_correctds_3'
 pkl_path = os.path.join(save_dir, f'{f_name}.pkl')
+
+if ds_suffix == 'celeba':
+    subsets = ('man', 'woman')
+    min_acc = .5
+    ds_title = r'$\bf{Celeb\ A}$'
+elif ds_suffix == 'waterbirds':
+    subsets = ('opposite', 'same')
+    min_acc = .25
+    ds_title = r'$\bf{Waterbirds}$'
 
 
 # %%
@@ -76,10 +85,10 @@ for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
         y = np.insert(y, 0, .5)
         plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
 
-    plt.ylabel(f'{name_readable} acc. balanced man')
-    plt.xlabel(f'{name_readable} acc. balanced woman')
+    plt.ylabel(f'{name_readable} acc. balanced {subsets[0]}')
+    plt.xlabel(f'{name_readable} acc. balanced {subsets[1]}')
     plt.legend()
-    plt.ylim(.5, 1)
+    plt.ylim(min_acc, 1)
     plt.xlim(.5, 1)
     # plt.xscale('log')
     # plt.yscale('log')
@@ -97,7 +106,7 @@ for r, alpha in zip(recorders, alphas):
     plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
     
 plt.xlabel('acc train')
-plt.ylabel('acc test')
+plt.ylabel(ds_title + '\nacc test')
 plt.legend()
 # plt.ylim(1e-1, 3)
 plt.xlim(.75, 1)
@@ -111,13 +120,14 @@ plt.show()
 
 f = create_figure(plot_width, plot_ratio)
 colors = dict()
+marker_size = 2.5
 
 for r, alpha in zip(recorders, alphas):
     x, y = r.get(f'loss_100'), r.get(f'sign_similarity')
     x = np.insert(x, 0, np.log(2))
     y = np.insert(y, 0, 1)
     x_s, y_s = smoothen_xy(x, y)
-    p = plt.gca().plot(x_s, y_s, marker='x')
+    p = plt.gca().plot(x_s, y_s, marker='x', markersize=marker_size)
     c = p[0].get_color()
     colors[alpha] = c
 
@@ -125,19 +135,19 @@ for r, alpha in zip(recorders, alphas):
     x = np.insert(x, 0, np.log(2))
     y = np.insert(y, 0, 1)
     x_s, y_s = smoothen_xy(x, y)
-    plt.gca().plot(x_s, y_s, marker='^', color=c)
+    plt.gca().plot(x_s, y_s, marker='^', color=c, markersize=marker_size)
 
     x, y = r.get(f'loss_100'), r.get(f'repr_alignment')
     x = np.insert(x, 0, np.log(2))
     y = np.insert(y, 0, 1)
     x_s, y_s = smoothen_xy(x, y)
-    plt.gca().plot(x_s, y_s, marker='d', color=c)
+    plt.gca().plot(x_s, y_s, marker='d', color=c, markersize=marker_size)
 
 for alpha, c in colors.items():
     plt.plot([], [], color=c, label=f'$\\alpha={alpha}$')
-plt.plot([], [], color='black', marker='x', label=f'sign similarity')
-plt.plot([], [], color='black', marker='^', label=f'ntk alignment')
-plt.plot([], [], color='black', marker='d', label=f'repr. kernel align.')
+plt.plot([], [], color='black', marker='x', label=f'sign similarity', markersize=marker_size)
+plt.plot([], [], color='black', marker='^', label=f'ntk alignment', markersize=marker_size)
+plt.plot([], [], color='black', marker='d', label=f'repr. kernel align.', markersize=marker_size)
 
 plt.xlabel('loss train')
 plt.ylabel('linearity measures')
