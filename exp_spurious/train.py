@@ -31,7 +31,10 @@ import sys
 sys.path.append('..')
 from plot_utils import *
 from linearization_utils import LinearizationProbe, ModelLinearKnob
-from train_utils import Recorder, ProbeAssistant
+from train_utils import Recorder, ProbeAssistant, InfiniteDataLoader
+from file_utils import resolve_tmpdir
+
+from torch.utils.data import DataLoader
 
 # %%
 
@@ -50,13 +53,10 @@ DS = Waterbirds
 
 ##
 
-if 'SLURM_TMPDIR' in os.environ:
-    slurm_tmpdir = os.environ['SLURM_TMPDIR']
-else:
-    slurm_tmpdir = '/Tmp/slurm.1836774.0'
+tmp_dir = resolve_tmpdir()
 save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
 
-data_path = os.path.join(slurm_tmpdir, 'data')
+data_path = os.path.join(tmp_dir, 'data')
 
 PATIENCE_MAX = 12
 
@@ -234,6 +234,7 @@ def test_model(model, model_0, alpha, device, test_loader, set_name="test set"):
 
     return test_loss, 100. * correct / len(test_loader.dataset)
 
+
 def loss_acc_by_group(output, target, gender, reduce=True):
     #gender: 1=man, 0=woman
     if ds_suffix == 'celeba':
@@ -263,70 +264,32 @@ def loss_acc_by_group(output, target, gender, reduce=True):
                 acc_indivs.float().sum(), acc_min, acc_maj,
                 loss_indivs.size(0), count_min, count_maj)
 
-def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
-        test_loader, optimizer, epoch, recorder, linprobe, probe_assistant):
-    do_stop = PATIENCE_MAX
 
-    for batch_idx, (x, target, gender) in enumerate(train_loader):
+def train_loop(model_linear_knob, train_loader, optimizer, max_epochs,
+               recorder, probe_assistant):
+    stop_patience = PATIENCE_MAX
 
-        # for measurement only (update is done below)
+    for batch_idx, epoch, (x, target, gender) in train_loader:
+
         optimizer.zero_grad()
-        output = model_linear_knob.pred_nograd(x)
-        loss, loss_flipped, loss_unflipped, acc, acc_flipped, acc_unflipped = \
-            loss_acc_by_group(output, target.float(), gender)
+        probe_assistant.step(force_probe=(batch_idx==0))
 
-        probe_assistant.record_loss(loss.item())
-        if probe_assistant.do_probe() or batch_idx % 100 == 0:
-            recorder.save('loss', loss.item())
-            recorder.save('acc', acc.item())
-            recorder.save('loss_flipped', loss_flipped.item())
-            recorder.save('loss_unflipped', loss_unflipped.item())
-            recorder.save('acc_flipped', acc_flipped.item())
-            recorder.save('acc_unflipped', acc_unflipped.item())
+        if batch_idx % 100 == 1:
+            print('Train Epoch: {} [{} its]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
+                epoch, batch_idx * len(x),
+                    recorder.get('loss')[-1],
+                    recorder.get('loss_flipped')[-1],
+                    recorder.get('loss_unflipped')[-1]))
 
-            (loss_test, loss_flipped_test, loss_unflipped_test, acc_test,
-                    acc_flipped_test, acc_unflipped_test) = loss_acc_by_group_dl(model_linear_knob, test_loader)
-
-            recorder.save('loss_test', loss_test.item())
-            recorder.save('acc_test', acc_test.item())
-            recorder.save('loss_flipped_test', loss_flipped_test.item())
-            recorder.save('loss_unflipped_test', loss_unflipped_test.item())
-            recorder.save('acc_flipped_test', acc_flipped_test.item())
-            recorder.save('acc_unflipped_test', acc_unflipped_test.item())
-
-            (loss_test, loss_flipped_test, loss_unflipped_test, acc_test,
-                    acc_flipped_test, acc_unflipped_test) = loss_acc_by_group_dl(model_linear_knob, train_balanced_loader)
-
-            recorder.save('loss_trainb', loss_test.item())
-            recorder.save('acc_trainb', acc_test.item())
-            recorder.save('loss_flipped_trainb', loss_flipped_test.item())
-            recorder.save('loss_unflipped_trainb', loss_unflipped_test.item())
-            recorder.save('acc_flipped_trainb', acc_flipped_test.item())
-            recorder.save('acc_unflipped_trainb', acc_unflipped_test.item())
-
-            if recorder.len('loss') % 5 == 1:
-                recorder.save('loss_100', loss.item())
-                recorder.save('sign_similarity',
-                              linprobe.sign_similarity(linprobe.get_signs(),
-                                                       linprobe.buffer['signs0']).item())
-                recorder.save('ntk_alignment',
-                              linprobe.kernel_alignment(linprobe.get_ntk(),
-                                                        linprobe.buffer['ntk0']).item())
-                recorder.save('repr_alignment',
-                              linprobe.representation_alignment(linprobe.get_last_layer_representation(),
-                                                                linprobe.buffer['repr0']).item())
-
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
-                    epoch, batch_idx * len(x), len(train_loader.dataset),
-                        100. * batch_idx / len(train_loader), loss.item(), loss_flipped.item(),
-                        loss_unflipped.item()))
-        if torch.isnan(loss) or acc.cpu() == 1:
-            do_stop -= 1
-            print(f'patience: {do_stop}')
-            if do_stop == 0:
-                return True
+        if batch_idx > 0 and acc.cpu() == 1:
+            stop_patience -= 1
+            print(f'patience: {stop_patience}')
+            if stop_patience == 0:
+                break
         else:
-            do_stop = PATIENCE_MAX
+            stop_patience = PATIENCE_MAX
+        if epoch >= max_epochs or \
+            (batch_idx > 0 and torch.isnan(loss)): break
 
         # update
         optimizer.zero_grad()
@@ -336,38 +299,89 @@ def erm_train(model_linear_knob, device, train_loader, train_balanced_loader,
         loss.backward()
         optimizer.step()
 
-    return False
+        probe_assistant.record_loss(loss.item())
+
+    probe_assistant.step(force_probe=True)
 
 
-def train_and_test_erm(alpha, model, all_train_loader, train_balanced_loader,
-        test_loader, device):
-    optimizer = optim.SGD(model.parameters(), lr=0.001 / alpha**2, momentum=.9)
+def evaluate_losses(recorder, model_linear_knob, linear_probe, loaders):
+    def _evaluate_losses():
+        (loss_train, loss_flipped_train, loss_unflipped_train, acc_train,
+                acc_flipped_train, acc_unflipped_train) = \
+                    loss_acc_by_group_dl(model_linear_knob, loaders['train'])
+
+        recorder.save('loss', loss_train.item())
+        recorder.save('acc', acc_train.item())
+        recorder.save('loss_flipped', loss_flipped_train.item())
+        recorder.save('loss_unflipped', loss_unflipped_train.item())
+        recorder.save('acc_flipped', acc_flipped_train.item())
+        recorder.save('acc_unflipped', acc_unflipped_train.item())
+
+        (loss_test, loss_flipped_test, loss_unflipped_test, acc_test,
+                acc_flipped_test, acc_unflipped_test) = \
+                    loss_acc_by_group_dl(model_linear_knob, loaders['test'])
+
+        recorder.save('loss_test', loss_test.item())
+        recorder.save('acc_test', acc_test.item())
+        recorder.save('loss_flipped_test', loss_flipped_test.item())
+        recorder.save('loss_unflipped_test', loss_unflipped_test.item())
+        recorder.save('acc_flipped_test', acc_flipped_test.item())
+        recorder.save('acc_unflipped_test', acc_unflipped_test.item())
+
+        (loss_trainb, loss_flipped_trainb, loss_unflipped_trainb, acc_trainb,
+                acc_flipped_trainb, acc_unflipped_trainb) = \
+                    loss_acc_by_group_dl(model_linear_knob, loaders['trainb'])
+
+        recorder.save('loss_trainb', loss_trainb.item())
+        recorder.save('acc_trainb', acc_trainb.item())
+        recorder.save('loss_flipped_trainb', loss_flipped_trainb.item())
+        recorder.save('loss_unflipped_trainb', loss_unflipped_trainb.item())
+        recorder.save('acc_flipped_trainb', acc_flipped_trainb.item())
+        recorder.save('acc_unflipped_trainb', acc_unflipped_trainb.item())
+
+        if recorder.len('loss') % 5 == 1:
+            recorder.save('loss_100', loss_train.item())
+            recorder.save('sign_similarity',
+                            linear_probe.sign_similarity(
+                                linear_probe.get_signs(),
+                                linear_probe.buffer['signs0']).item())
+            recorder.save('ntk_alignment',
+                            linear_probe.kernel_alignment(
+                                linear_probe.get_ntk(),
+                                linear_probe.buffer['ntk0']).item())
+            recorder.save('repr_alignment',
+                            linear_probe.representation_alignment(
+                                linear_probe.get_last_layer_representation(),
+                                linear_probe.buffer['repr0']).item())
+                                
+    return _evaluate_losses                                                        
+
+
+def train_alpha(alpha, model, train_loader, all_loaders):
+
+    lr = 0.001 if ds_suffix == 'waterbirds' else 0.01
+    optimizer = optim.SGD(model.parameters(), lr=lr / alpha**2, momentum=.9)
     recorder = Recorder()
 
-    model_linear_knob = ModelLinearKnob(model, copy.deepcopy(model), alpha)
-    probe_assistant = ProbeAssistant(np.log(2), .96)
-
-    linprobe = LinearizationProbe(model, test_loader)
+    linprobe = LinearizationProbe(model, all_loaders['test'])
     linprobe.buffer['signs0'] = linprobe.get_signs().detach()
     linprobe.buffer['ntk0'] = linprobe.get_ntk().detach()
     linprobe.buffer['repr0'] = linprobe.get_last_layer_representation().detach()
 
-    for epoch in range(1, 750):
-        do_stop = erm_train(model_linear_knob, device, all_train_loader,
-                            train_balanced_loader, test_loader, optimizer, epoch, recorder,
-                            linprobe, probe_assistant)
+    model_linear_knob = ModelLinearKnob(model, copy.deepcopy(model), alpha)
+    probe_assistant = ProbeAssistant(evaluate_losses(recorder=recorder,
+                                                     model_linear_knob=model_linear_knob,
+                                                     linear_probe=linprobe,
+                                                     loaders=all_loaders),
+                                     np.log(2), .96)
 
-        if do_stop:
-            break
+    train_loop(model_linear_knob, train_loader, optimizer, 10, recorder,
+               probe_assistant)
+
     return recorder
 
+
 def main(pkl_path):
-    train_loader = torch.utils.data.DataLoader(celeba_train_ds, batch_size=100,
-                                            shuffle=True)
-    test_loader = torch.utils.data.DataLoader(celeba_test_ds, batch_size=150,
-                                            shuffle=False)
-    train_balanced_loader = torch.utils.data.DataLoader(
-        celeba_train_balanced_ds, batch_size=len(celeba_train_balanced_ds), shuffle=False)
     if ds_suffix == 'celeba':
         model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
         model.fc = torch.nn.Linear(model.fc.in_features, 1)
@@ -378,14 +392,30 @@ def main(pkl_path):
         model.eval()
     model = model.cuda()
 
-    # alphas = 10**np.arange(0, 3.5, 1)
     alphas = [0.5, 1, 100]
     recorders = []
 
     for alpha in alphas:
         logging.info(f"Starting training for alpha = {alpha}")
+
+        # preparing dataloaders
+        train_loader_inf = InfiniteDataLoader(celeba_train_ds, batch_size=100,
+                                            shuffle=True)
+        train_loader = DataLoader(celeba_train_ds, batch_size=100, shuffle=False)
+        test_loader = DataLoader(celeba_test_ds, batch_size=150, shuffle=False)
+        train_balanced_loader = DataLoader(celeba_train_balanced_ds,
+                batch_size=len(celeba_train_balanced_ds), shuffle=False)
+        all_loaders = {
+            'train': train_loader,
+            'test': test_loader,
+            'trainb': train_balanced_loader
+        }
+
+        #copy initial model
         model_copy = copy.deepcopy(model)
-        recorder = train_and_test_erm(alpha, model_copy, train_loader, train_balanced_loader, test_loader, device)
+
+        # start training, get recorder
+        recorder = train_alpha(alpha, model_copy, train_loader_inf, all_loaders)
         recorders.append(recorder)
 
     pkl.dump(recorders, open(pkl_path, 'wb'))
@@ -398,235 +428,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.save)
-    exit()
-
-# %%
-# alphas = [0.5, 1, 10]
-# recorders = pkl.load(open(pkl_path, 'rb'))
-
-# %%
-def smoothen_moving_average(N):
-    return lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
-
-def smoothen_running_average(x):
-  gamma = .9
-  o = []
-  ra = x[0]
-  for xi in x:
-    ra = gamma * ra + (1 - gamma) * xi
-    o.append(ra)
-  return np.array(o)
-
-no_smoothing = lambda x: x
-
-smoothen = smoothen_running_average
-
-# %%
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    ax = plt.plot(smoothen(r.get('loss_flipped_trainb')), label=f'alpha={alpha}')
-    plt.plot(smoothen(r.get('loss_unflipped_trainb')), color=ax[0].get_color())
-plt.xlabel('iterations')
-plt.ylabel('loss')
-plt.legend()
-# plt.xlim(5e-1, 3)
-plt.ylim(0, 3)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.show()
-
-# %%
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    ax = plt.plot(smoothen(r.get('acc_flipped')), label=f'alpha={alpha}')
-    plt.plot(smoothen(r.get('acc_unflipped')), color=ax[0].get_color())
-plt.xlabel('iterations')
-plt.ylabel('accuracy')
-plt.legend()
-# plt.xlim(5e-1, 3)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.show()
-
-# %%
-
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    ax = plt.plot(smoothen(r.get('sign_similarity')), label=f'alpha={alpha}')
-plt.xlabel('iterations')
-plt.ylabel('sign_similarity')
-plt.legend()
-# plt.xlim(5e-1, 3)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.show()
-
-# %%
-
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    ax = plt.plot(smoothen(r.get('loss_100')), smoothen(r.get('sign_similarity')), label=f'alpha={alpha}')
-plt.xlabel('train loss')
-plt.ylabel('sign_similarity')
-plt.legend()
-
-xlim = plt.xlim()
-plt.xlim(xlim[1], xlim[0])
-# plt.xlim(5e-1, 3)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.savefig(f'figures/signsim_vs_loss.pdf')
-plt.show()
-
-# %%
-
-for prefix in ['trainb', 'test']:
-    plt.figure(figsize=(10, 10))
-
-    for r, alpha in zip(recorders, alphas):
-        plt.scatter(smoothen(r.get(f'loss_unflipped_{prefix}')), smoothen(r.get(f'loss_flipped_{prefix}')), label=f'alpha={alpha}', marker='x', s=1)
-    plt.ylabel(f'{prefix} loss for blond and man')
-    plt.xlabel(f'{prefix} loss for blond and woman')
-    plt.legend()
-    plt.ylim(0, 5)
-    plt.xlim(0, 5)
-    # plt.xscale('log')
-    # plt.yscale('log')
-    plt.grid()
-    plt.savefig(f'figures/{prefix}_loss_spur_vs_actual.pdf')
-    plt.show()
-
-
-# %%
-import statsmodels.api as sm
-def smoothen_lowess(x, y):
-    lowess = sm.nonparametric.lowess(y, x, frac=.15)
-    x = lowess[:, 0]
-    y = lowess[:, 1]
-    return x, y
-
-def rotate(x, y, angle=np.pi/4, origin=(.5, .5)):
-    x = x - origin[0]
-    y = y - origin[1]
-    x_prime = x * np.cos(angle) + y * np.sin(angle)
-    y_prime = -x * np.sin(angle) + y * np.cos(angle)
-    return x_prime, y_prime
-
-def rotate_back(x, y, angle=np.pi/4, origin=(.5, .5)):
-    x_prime = x * np.cos(-angle) + y * np.sin(-angle)
-    y_prime = -x * np.sin(-angle) + y * np.cos(-angle)
-    return x_prime + origin[0], y_prime + origin[1]
-
-def smoothen_xy(x, y):
-    x = np.array(x)
-    y = np.array(y)
-    x, y = rotate(x, y, np.pi/4, (.5, .5))
-    x, y = smoothen_lowess(x, y)
-    x, y = rotate_back(x, y, np.pi/4, (.5, .5))
-    return x, y
-
-
-for prefix in ['trainb', 'test']:
-    plt.figure(figsize=(10, 10))
-
-    for r, alpha in zip(recorders, alphas):
-        x, y = smoothen_xy(r.get(f'acc_unflipped_{prefix}'),
-                           r.get(f'acc_flipped_{prefix}'))
-        plt.plot(x, y, label=f'alpha={alpha}')
-    plt.ylabel(f'{prefix} acc blond and man')
-    plt.xlabel(f'{prefix} acc blond and woman')
-    plt.legend()
-    # plt.ylim(1e-1, 3)
-    # plt.xlim(1e-1, 1)
-    # plt.xscale('log')
-    # plt.yscale('log')
-    plt.grid()
-    plt.savefig(f'figures/{prefix}_acc_spur_vs_actual.pdf')
-    plt.show()
-
-# %%
-
-for prefix in ['trainb', 'test']:
-    plt.figure(figsize=(10, 10))
-
-    for r, alpha in zip(recorders, alphas):
-        plt.scatter(smoothen(r.get(f'acc_unflipped_{prefix}')),
-                    smoothen(r.get(f'acc_flipped_{prefix}')),
-                    label=f'alpha={alpha}',
-                    marker='x', s=1)
-    plt.ylabel(f'{prefix} acc blond and man')
-    plt.xlabel(f'{prefix} acc blond and woman')
-    plt.legend()
-    # plt.ylim(1e-1, 3)
-    # plt.xlim(1e-1, 1)
-    # plt.xscale('log')
-    # plt.yscale('log')
-    plt.grid()
-    plt.savefig(f'figures/{prefix}_acc_spur_vs_actual.pdf')
-    plt.show()
-
-# %%
-
-cmaps = ['spring', 'summer', 'winter', 'winter']
-
-for prefix in ['trainb', 'test']:
-    plt.figure(figsize=(10, 10))
-
-    for i, (r, alpha) in enumerate(zip(recorders, alphas)):
-        x = smoothen(r.get(f'acc_unflipped_{prefix}'))
-        y = smoothen(r.get(f'acc_flipped_{prefix}'))
-        plt.scatter(x, y,
-                 label=f'alpha={alpha}',
-                 marker='x', s=10,
-                 cmap=cmaps[i], c=np.linspace(0, 1, len(x)))
-    plt.ylabel(f'{prefix} acc blond and man')
-    plt.xlabel(f'{prefix} acc blond and woman')
-    plt.legend()
-    # plt.ylim(1e-1, 3)
-    # plt.xlim(1e-1, 1)
-    # plt.xscale('log')
-    # plt.yscale('log')
-    plt.grid()
-    plt.savefig(f'figures/{prefix}_acc_spur_vs_actual.pdf')
-    plt.show()
-
-# %%
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    plt.scatter(smoothen(r.get('loss')), smoothen(r.get('loss_test')), label=f'alpha={alpha}', marker='x', s=1)
-plt.xlabel('loss train')
-plt.ylabel('loss test')
-plt.legend()
-# plt.ylim(1e-1, 3)
-# plt.xlim(1e-1, 1)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.savefig('figures/loss_test_vs_train.pdf')
-plt.show()
-
-# %%
-plt.figure(figsize=(10, 10))
-
-for r, alpha in zip(recorders, alphas):
-    plt.scatter(smoothen(r.get('acc')), smoothen(r.get('acc_test')), label=f'alpha={alpha}', marker='x', s=1)
-plt.xlabel('acc train')
-plt.ylabel('acc test')
-plt.legend()
-# plt.ylim(1e-1, 3)
-# plt.xlim(1e-1, 1)
-# plt.xscale('log')
-# plt.yscale('log')
-plt.grid()
-plt.savefig('figures/acc_test_vs_train.pdf')
-plt.show()
-# %%

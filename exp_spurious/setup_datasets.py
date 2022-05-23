@@ -40,26 +40,20 @@ def download_datasets(data_path, celeba, waterbirds):
     os.makedirs(data_path, exist_ok=True)
 
     if celeba:
-        logging.info("Extracting CelebA")
+        logging.info("Downloading CelebA")
         celeba_dir = os.path.join(data_path, "celeba")
         os.makedirs(celeba_dir, exist_ok=True)
-        extract(
+        download(
             "https://drive.google.com/uc?id=1mb1R6dXfWbvk3DnlWOBO8pDeoBKOcLE6",
-            os.path.join(celeba_dir, "img_align_celeba.zip"),
-            remove=False
-        )
-        extract(
+            os.path.join(celeba_dir, "img_align_celeba.zip"))
+        download(
             "https://drive.google.com/uc?id=1acn0-nE4W7Wa17sIkKB0GtfW4Z41CMFB",
-            os.path.join(celeba_dir, "list_eval_partition.txt"),
-            remove=False
-        )
-        extract(
+            os.path.join(celeba_dir, "list_eval_partition.txt"))
+        download(
             "https://drive.google.com/uc?id=11um21kRUuaUNoMl59TCe2fb01FNjqNms",
-            os.path.join(celeba_dir, "list_attr_celeba.txt"),
-            remove=False
-        )
+            os.path.join(celeba_dir, "list_attr_celeba.txt"))
     if waterbirds:
-        logging.info("Downloading and extracting Waterbirds")
+        logging.info("Downloading Waterbirds")
         water_birds_dir = os.path.join(data_path, "waterbirds")
         os.makedirs(water_birds_dir, exist_ok=True)
         water_birds_dir_tar = os.path.join(water_birds_dir, "waterbirds.tar.gz")
@@ -67,32 +61,24 @@ def download_datasets(data_path, celeba, waterbirds):
             "https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz",
             water_birds_dir_tar,
         )
+
+
+def extract_datasets(data_path, celeba, waterbirds):
+    os.makedirs(data_path, exist_ok=True)
+
+    if celeba:
+        logging.info("Extracting CelebA")
+        celeba_dir = os.path.join(data_path, "celeba")
+        os.makedirs(celeba_dir, exist_ok=True)
+        extract(os.path.join(celeba_dir, "img_align_celeba.zip"), remove=False)
+        extract(os.path.join(celeba_dir, "list_eval_partition.txt"), remove=False)
+        extract(os.path.join(celeba_dir, "list_attr_celeba.txt"), remove=False)
+    if waterbirds:
+        logging.info("Extracting Waterbirds")
+        water_birds_dir = os.path.join(data_path, "waterbirds")
+        os.makedirs(water_birds_dir, exist_ok=True)
+        water_birds_dir_tar = os.path.join(water_birds_dir, "waterbirds.tar.gz")
         extract(water_birds_dir_tar)
-    return
-
-    logging.info("Downloading MultiNLI")
-    multinli_dir = os.path.join(data_path, "multinli")
-    glue_dir = os.path.join(multinli_dir, "glue_data/MNLI/")
-    os.makedirs(glue_dir, exist_ok=True)
-    multinli_tar = os.path.join(glue_dir, "multinli_bert_features.tar.gz")
-    download_and_extract(
-        "https://nlp.stanford.edu/data/dro/multinli_bert_features.tar.gz",
-        multinli_tar,
-    )
-    os.makedirs(os.path.join(multinli_dir, "data"), exist_ok=True)
-    download_and_extract(
-        "https://raw.githubusercontent.com/kohpangwei/group_DRO/master/dataset_metadata/multinli/metadata_random.csv",
-        os.path.join(multinli_dir, "data", "metadata_random.csv"),
-        remove=False
-    )
-
-    logging.info("Downloading CivilComments")
-    civilcomments_dir = os.path.join(data_path, "civilcomments")
-    os.makedirs(civilcomments_dir, exist_ok=True)
-    download_and_extract(
-        "https://worksheets.codalab.org/rest/bundles/0x8cd3de0634154aeaad2ee6eb96723c6e/contents/blob/",
-        os.path.join(civilcomments_dir, "civilcomments.tar.gz"),
-    )
 
 
 def generate_metadata_celeba(data_path):
@@ -213,6 +199,11 @@ if __name__ == "__main__":
         default=False,
     )
     parser.add_argument(
+        "--extract",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
         "--celeba",
         action="store_true",
         default=False,
@@ -228,6 +219,10 @@ if __name__ == "__main__":
         download_datasets(args.data_path,
                           celeba=args.celeba,
                           waterbirds=args.waterbirds)
+    if args.extract:
+        extract_datasets(args.data_path,
+                         celeba=args.celeba,
+                         waterbirds=args.waterbirds)
     if args.celeba:
         generate_metadata_celeba(args.data_path)
     if args.waterbirds:
