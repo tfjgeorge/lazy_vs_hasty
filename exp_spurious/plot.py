@@ -17,16 +17,18 @@ ds_suffix = 'waterbirds'
 fig_path = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}_figures/'
 
 save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
-f_name = 'r_smalllr_correctds_3'
+f_name = 'r_smalllr_correctds_4'
 pkl_path = os.path.join(save_dir, f'{f_name}.pkl')
 
 if ds_suffix == 'celeba':
     subsets = ('man', 'woman')
-    min_acc = .5
+    min_acc_balanced = .5
+    min_acc_train = .75
     ds_title = r'$\bf{Celeb\ A}$'
 elif ds_suffix == 'waterbirds':
     subsets = ('opposite', 'same')
-    min_acc = .25
+    min_acc_balanced = .25
+    min_acc_train = .7
     ds_title = r'$\bf{Waterbirds}$'
 
 
@@ -35,6 +37,7 @@ alphas = [0.5, 1, 100]
 recorders = pkl.load(open(pkl_path, 'rb'))
 
 plot_width = .33
+plot_width_first = .34
 plot_ratio = 1.2
 
 # %%
@@ -88,7 +91,7 @@ for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
     plt.ylabel(f'{name_readable} acc. balanced {subsets[0]}')
     plt.xlabel(f'{name_readable} acc. balanced {subsets[1]}')
     plt.legend()
-    plt.ylim(min_acc, 1)
+    plt.ylim(min_acc_balanced, 1)
     plt.xlim(.5, 1)
     # plt.xscale('log')
     # plt.yscale('log')
@@ -97,7 +100,7 @@ for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
     plt.show()
 
 # %%
-f = create_figure(plot_width, plot_ratio)
+f = create_figure(plot_width_first, plot_ratio)
 
 for r, alpha in zip(recorders, alphas):
     x, y = r.get(f'acc'), r.get(f'acc_test')
@@ -105,11 +108,11 @@ for r, alpha in zip(recorders, alphas):
     y = np.insert(y, 0, .5)
     plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
     
-plt.xlabel('acc train')
-plt.ylabel(ds_title + '\nacc test')
+plt.xlabel('accuracy train')
+plt.ylabel(ds_title + '\naccuracy test')
 plt.legend()
 # plt.ylim(1e-1, 3)
-plt.xlim(.75, 1)
+plt.xlim(min_acc_train, 1)
 # plt.xscale('log')
 # plt.yscale('log')
 plt.grid()

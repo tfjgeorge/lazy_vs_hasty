@@ -16,7 +16,7 @@ from six import remove_move
 def download(url, dst):
     gdown.download(url, dst, quiet=False)
 
-def extract(dst, remove=True):
+def extract(dst, remove=False):
     if dst.endswith(".tar.gz"):
         tar = tarfile.open(dst, "r:gz")
         tar.extractall(os.path.dirname(dst))
