@@ -11,13 +11,14 @@ from plot_utils import smoothen_running_average
 
 # %%
 
-# ds_suffix = 'celeba'
-ds_suffix = 'waterbirds'
+ds_suffix = 'celeba'
+# ds_suffix = 'waterbirds'
 
 fig_path = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}_figures/'
 
 save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
-f_name = 'r_smalllr_correctds_4'
+# f_name = 'r_smalllr_correctds_5'
+f_name = 'recorder_longer5'
 pkl_path = os.path.join(save_dir, f'{f_name}.pkl')
 
 if ds_suffix == 'celeba':
@@ -84,8 +85,8 @@ for ds_name, name_readable in zip(['trainb', 'test'], ['train', 'test']):
 
     for r, alpha in zip(recorders, alphas):
         x, y = r.get(f'acc_unflipped_{ds_name}'), r.get(f'acc_flipped_{ds_name}')
-        x = np.insert(x, 0, .5)
-        y = np.insert(y, 0, .5)
+        # x = np.insert(x, 0, .5)
+        # y = np.insert(y, 0, .5)
         plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
 
     plt.ylabel(f'{name_readable} acc. balanced {subsets[0]}')
@@ -117,6 +118,24 @@ plt.xlim(min_acc_train, 1)
 # plt.yscale('log')
 plt.grid()
 save_fig(f, os.path.join(fig_path, f'{f_name}_acc_test_vs_train.pdf'))
+plt.show()
+
+# %%
+f = create_figure(plot_width_first, plot_ratio)
+
+for r, alpha in zip(recorders, alphas):
+    x, y = r.get(f'loss'), r.get(f'loss_test')
+    plot(plt.gca(), x, y, f'$\\alpha={alpha}$')
+    
+plt.xlabel('loss train')
+plt.ylabel(ds_title + '\nloss test')
+plt.legend()
+xlim = plt.xlim()
+plt.xlim(xlim[1], xlim[0])
+# plt.xscale('log')
+# plt.yscale('log')
+plt.grid()
+save_fig(f, os.path.join(fig_path, f'{f_name}_loss_test_vs_train.pdf'))
 plt.show()
 
 # %%

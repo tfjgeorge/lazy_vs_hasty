@@ -41,23 +41,6 @@ from torch.utils.data import DataLoader
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-# CelebA:
-
-ds_suffix = 'celeba'
-DS = CelebA
-
-# Waterbirds:
-
-ds_suffix = 'waterbirds'
-DS = Waterbirds
-
-##
-
-tmp_dir = resolve_tmpdir()
-save_dir = f'/network/projects/g/georgeth/linvsnonlin/{ds_suffix}'
-
-data_path = os.path.join(tmp_dir, 'data')
-
 PATIENCE_MAX = 12
 
 
@@ -120,7 +103,7 @@ if False:
 
 # %%
 
-def get_balanced_dataset(split, n):
+def get_balanced_dataset(split, n, DS):
     ds = DS(data_path=data_path, split=split)
     attrs = []
     dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
@@ -156,11 +139,9 @@ def get_balanced_dataset(split, n):
                       torch.cat([d[2] for d in notblond_women])])
     return TensorDataset(xs, ys, gs)
 
-celeba_test_ds = get_balanced_dataset('te', 150)
-
 # %%
 
-def get_celeba_gpu(split):
+def get_celeba_gpu(split, DS):
   ds = DS(data_path=data_path, split=split)
   xs, ys, gs = [], [], []
   dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
@@ -174,10 +155,6 @@ def get_celeba_gpu(split):
       break
 
   return TensorDataset(torch.cat(xs), torch.cat(ys), torch.cat(gs))
-
-logging.info(f"Loading {ds_suffix} to GPU")
-celeba_train_ds = get_celeba_gpu('tr')
-celeba_train_balanced_ds = get_balanced_dataset('tr', 150)
 
 # %%
 
@@ -237,10 +214,10 @@ def test_model(model, model_0, alpha, device, test_loader, set_name="test set"):
 
 def loss_acc_by_group(output, target, gender, reduce=True):
     #gender: 1=man, 0=woman
-    if ds_suffix == 'celeba':
+    if args.task == 'celeba':
         switch_min = gender #* target
         switch_maj = (1 - gender) #* target
-    elif ds_suffix == 'waterbirds':
+    elif args.task == 'waterbirds':
         switch_min = gender * (1 - target) + (1 - gender) * target
         switch_maj = 1 - switch_min
 
@@ -274,8 +251,8 @@ def train_loop(model_linear_knob, train_loader, optimizer, max_epochs,
         optimizer.zero_grad()
         probe_assistant.step(force_probe=(batch_idx==0))
 
-        if batch_idx % 100 == 1:
-            print('Train Epoch: {} [{} its]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
+        if batch_idx % 100 == 0:
+            print('Train Epoch: {} [{} examples]\tLoss: {:.6f} ({:.6f}, {:.6f})'.format(
                 epoch, batch_idx * len(x),
                     recorder.get('loss')[-1],
                     recorder.get('loss_flipped')[-1],
@@ -359,7 +336,7 @@ def evaluate_losses(recorder, model_linear_knob, linear_probe, loaders):
 
 def train_alpha(alpha, model, train_loader, all_loaders):
 
-    lr = 0.001 if ds_suffix == 'waterbirds' else 0.01
+    lr = 0.001 if args.task == 'waterbirds' else 0.01
     optimizer = optim.SGD(model.parameters(), lr=lr / alpha**2, momentum=.9)
     recorder = Recorder()
 
@@ -375,18 +352,18 @@ def train_alpha(alpha, model, train_loader, all_loaders):
                                                      loaders=all_loaders),
                                      np.log(2), .96)
 
-    train_loop(model_linear_knob, train_loader, optimizer, 10, recorder,
+    train_loop(model_linear_knob, train_loader, optimizer, 750, recorder,
                probe_assistant)
 
     return recorder
 
 
-def main(pkl_path):
-    if ds_suffix == 'celeba':
+def main(pkl_path, task):
+    if task == 'celeba':
         model = models.resnet.resnet18(norm_layer=torch.nn.Identity)
         model.fc = torch.nn.Linear(model.fc.in_features, 1)
         model.train()
-    elif ds_suffix == 'waterbirds':
+    elif task == 'waterbirds':
         model = models.resnet.resnet18(pretrained=True)
         model.fc = torch.nn.Linear(model.fc.in_features, 1)
         model.eval()
@@ -425,6 +402,22 @@ def main(pkl_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--save', default=None, type=str, help='Path to store results')
+    parser.add_argument('--task', default=None, type=str, choices=['celeba', 'waterbirds'],
+                        help='Task')
     args = parser.parse_args()
 
-    main(args.save)
+    if args.task == 'celeba':
+        DS = CelebA
+    elif args.task == 'waterbirds':
+        DS = Waterbirds
+
+    tmp_dir = resolve_tmpdir()
+    save_dir = f'/network/projects/g/georgeth/linvsnonlin/{args.task}'
+    data_path = os.path.join(tmp_dir, 'data')
+
+    logging.info(f"Loading {args.task} dataset to GPU")
+    celeba_train_ds = get_celeba_gpu('tr', DS)
+    celeba_train_balanced_ds = get_balanced_dataset('tr', 150, DS)
+    celeba_test_ds = get_balanced_dataset('te', 150, DS)
+
+    main(args.save, args.task)
