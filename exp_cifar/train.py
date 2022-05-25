@@ -13,8 +13,6 @@ import copy
 from utils import RunningAverageEstimator, get_binned_dataloaders
 import math
 
-from alignment import alignment
-
 from nngeometry.object import PVector, PushForwardImplicit, PushForwardDense
 from nngeometry.generator import Jacobian
 
@@ -26,7 +24,7 @@ from nngeometry.object.vector import random_pvector
 
 start_time = time.time()
 
-parser = argparse.ArgumentParser(description='Compute various NTK alignment quantities')
+parser = argparse.ArgumentParser(description='CIFAR10 training with accuracy by subgroups of examples')
 
 parser.add_argument('--task', required=True, type=str, help='Task',
                     choices=['mnist_fc', 'cifar10_vgg11', 'cifar10_resnet18'])
@@ -46,7 +44,6 @@ parser.add_argument('--epochs', default=100, type=int, help='epochs')
 parser.add_argument('--batch_size', default=125, type=int, help='Batch size')
 parser.add_argument('--batch_norm', action='store_true')
 parser.add_argument('--track_accs', action='store_true', help='Computes accuracy in subsets of trainset binned by cscore')
-parser.add_argument('--track_aligns', action='store_true', help='Computes alignment in subsets of trainset binned by cscore')
 parser.add_argument('--track_lin', action='store_true', help='Computes linearization measures')
 
 parser.add_argument('--fork_from', default=None, type=str, help='Reload checkpoint')
@@ -143,8 +140,6 @@ def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_itera
                 if args.track_accs:
                     to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
                     to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
-                if args.track_aligns:
-                    to_log['train_aligns'] = align_binned(dataloaders['train_binned'], model)
                 if args.track_lin:
                     to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(), linprobe.buffer['signs_0']).item()
                     to_log['ntk_alignment'] = linprobe.kernel_alignment(linprobe.get_ntk(), linprobe.buffer['ntk_0']).item()
@@ -201,13 +196,6 @@ def test_binned(loaders, model, model_0, alpha):
         accs.append(acc)
         losses.append(loss)
     return accs, losses
-
-
-def align_binned(loaders, model):
-    aligns = []
-    for loader in loaders:
-        aligns.append(alignment(model, lambda *x: model(x[0]), loader, 10, centering=False)[0])
-    return aligns
 
 
 def test(loader, model, model_0, alpha):
@@ -359,7 +347,7 @@ columns_lin = ['iteration', 'train_lin', 'train_nonlin']
 if args.diff > 0.:
     columns += ['train_diff_acc', 'train_diff_loss']
     columns += ['train_easy_acc', 'train_easy_loss']
-if args.track_accs or args.track_aligns:
+if args.track_accs:
     with open('cifar10-cscores-orig-order.npz', 'rb') as f:
         d = np.load(f)
         cscores = d['scores']
@@ -376,8 +364,6 @@ if args.track_accs or args.track_aligns:
     if args.track_accs:
         columns += ['train_accs', 'train_losses']
         columns += ['test_accs', 'test_losses']
-    if args.track_aligns:
-        columns += ['train_aligns']
     if args.track_lin:
         columns += ['sign_similarity', 'ntk_alignment', 'repr_alignment']
 
