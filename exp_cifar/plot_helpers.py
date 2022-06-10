@@ -9,6 +9,7 @@ import os
 def concatenate_acc_loss(d, train=True):
     accs = []
     losses = []
+    print(f"#iterations: {d['iteration'].max()}, #epochs: {d['epoch'].max()}")
     for i, r in d.iterrows():
         accs.append(r[f'{"train" if train else "test"}_accs'])
         losses.append(r[f'{"train" if train else "test"}_losses'])

@@ -1,5 +1,7 @@
 import argparse
-from torch._C import _debug_set_autodiff_subgraph_inlining
+import torch
+
+# torch.use_deterministic_algorithms(True)
 
 from torch.utils.data import dataloader
 from tasks import get_task, add_difficult_examples, extract_small_loader
@@ -21,6 +23,8 @@ sys.path.append('..')
 from linearization_utils import LinearizationProbe
 
 from nngeometry.object.vector import random_pvector
+
+from pickable_sampler import PickableSampler
 
 start_time = time.time()
 
@@ -62,38 +66,31 @@ def stopping_criterion(log):
         return True
     return False
 
-def do_log(iterations, dataloaders, args):
-    exps = np.arange(0, 300, .5)
 
-    train_s = len(dataloaders['train'].dataset)
-    mb_in_epoch = train_s // args.batch_size
-    epoch = iterations // mb_in_epoch
-    batch_idx = iterations % mb_in_epoch
-
-    return (iterations == 0 or
-            iterations in 5 * (1.15 ** exps).astype('int') or
-            (epoch == (args.epochs-1) and (batch_idx == mb_in_epoch-1)) or
-            batch_idx == 0)
-
-def save_checkpoint(iterations, acc_milestone, model, model_0, optimizer, dataloaders, rae, alpha):
+def save_checkpoint(iterations, model, model_0, optimizer, dataloaders, rae, alpha):
+    batch_sampler = copy.deepcopy(dataloaders['train'].batch_sampler)
+    batch_sampler.its_since_epoch -= 1 # rewind
     checkpoint = {
         'model': model,
         'optimizer': optimizer,
         'rae': rae,
-        'iterations': iterations,
+        'iterations': dataloaders['train'].iterations-1,
+        'epoch': dataloaders['train'].epoch,
         'targets': dataloaders['train'].dataset.tensors[1],
         'train_logits': get_logits(dataloaders['train_deterministic'], model, model_0, alpha),
         'test_logits': get_logits(dataloaders['test'], model, model_0, alpha),
-        'torch_rng_state': torch.get_rng_state()
+        'torch_rng_state': torch.get_rng_state(),
+        'train_sampler': batch_sampler
     }
     if args.diff > 0:
         checkpoint['train_diff_dataloader'] = dataloaders['mini_train_diff']
         checkpoint['train_diff_logits'] = get_logits(dataloaders['mini_train_diff'], model, model_0, alpha)
         checkpoint['train_easy_dataloader'] = dataloaders['mini_train_easy']
         checkpoint['train_easy_logits'] = get_logits(dataloaders['mini_train_easy'], model, model_0, alpha)
-    checkpoint_path = os.path.join(results_dir, f'checkpoint_{acc_milestone}_{iterations}.pt')
+    checkpoint_path = os.path.join(results_dir, f'checkpoint_0_{iterations}.pt')
     torch.save(checkpoint, checkpoint_path)
     print(f'saved checkpoint {checkpoint_path}')
+
 
 def get_logits(dataloader, model, model_0, alpha):
     with torch.no_grad():
@@ -102,90 +99,83 @@ def get_logits(dataloader, model, model_0, alpha):
             total_logits.append(alpha * (model(inputs) - model_0(inputs)) + logits)
         return torch.cat(total_logits)
 
+
+def do_log(args, log, dataloaders, linprobe, alpha):
+
+    def _do_log():
+        to_log = pd.Series()
+        to_log['time'] = time.time() - start_time
+
+        to_log['iteration'] = dataloaders['train'].iterations
+        to_log['epoch'] = dataloaders['train'].epoch
+        to_log['train_acc'], to_log['train_loss'] = rae.get('train_acc'), rae.get('train_loss')
+        to_log['test_acc'], to_log['test_loss'] = \
+            test(dataloaders['mini_test'], model, model_0, alpha)
+        if args.diff > 0:
+            to_log['train_diff_acc'], to_log['train_diff_loss'] = \
+                test(dataloaders['mini_train_diff'], model, model_0, alpha)
+            to_log['train_easy_acc'], to_log['train_easy_loss'] = \
+                test(dataloaders['mini_train_easy'], model, model_0, alpha)
+        if args.track_accs:
+            to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
+            to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
+        if args.track_lin:
+            to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(),
+                                                                 linprobe.buffer['signs_0']).item()
+            to_log['ntk_alignment'] = linprobe.kernel_alignment(linprobe.get_ntk(),
+                                                                linprobe.buffer['ntk_0']).item()
+            to_log['repr_alignment'] = linprobe.representation_alignment(linprobe.get_last_layer_representation(),
+                                                                         linprobe.buffer['repr_0']).item()
+
+        log.loc[len(log)] = to_log
+        print(log.loc[len(log) - 1])
+
+        path_log = os.path.join(results_dir,'log.pkl')
+        log.to_pickle(path_log)
+        print(f'saved log to {path_log}')
+
+    return _do_log
+
+
 # Training
-def train(args, log, lin_log, model, model_0, optimizer, alpha, rae, start_iteration=0, next_milestone=10, lin_probe=None):
+def train(args, model, model_0, optimizer, alpha, probe_assistant):
     model.train()
     model_0.train() # even if we are not actually training, needs to be put in train mode in order to kill batch norm fluctuations
-    iterations = start_iteration
-    # triggers checkpoint save after accuracy reaches milestone value
-    do_save_checkpoint = False
-    if iterations == 0:
-        save_checkpoint(iterations, next_milestone, model, model_0, optimizer, dataloaders, rae, alpha)
+    
+    loss = None
 
-    for epoch in range(args.epochs):
+    for batch_idx, epoch, (inputs, targets, logits) in dataloaders['train']:
+        if batch_idx == 0:
+            save_checkpoint(batch_idx, model, model_0,
+                            optimizer, dataloaders, rae, alpha)
 
-        print('\nEpoch: %d' % epoch)
-        for batch_idx, (inputs, targets, logits) in enumerate(dataloaders['train']):
+        probe_assistant.step(force_probe=(batch_idx==0))
 
-            if rae.get('train_acc') >= next_milestone / 100:
-                do_save_checkpoint = True
-                next_milestone += 5
+        if epoch >= args.epochs or \
+            (loss is not None and torch.isnan(loss)):
+            probe_assistant.step(force_probe=True)
+            break
 
-            do_log_ = do_log(iterations, dataloaders, args)
+        inputs, targets = inputs.to('cuda'), targets.to('cuda')
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        with torch.no_grad():
+            outputs -= model_0(inputs).detach()
+        outputs_alpha = alpha * outputs
 
-            if do_log_:
-                to_log = pd.Series()
-                to_log['time'] = time.time() - start_time
+        loss = criterion(outputs_alpha + logits, targets)
+        grad_f = torch.autograd.grad(loss, outputs_alpha)[0]
+        outputs.backward(grad_f)
 
-                to_log['iteration'] = iterations
-                to_log['epoch'] = epoch
-                to_log['train_acc'], to_log['train_loss'] = rae.get('train_acc'), rae.get('train_loss')
-                to_log['test_acc'], to_log['test_loss'] = \
-                    test(dataloaders['mini_test'], model, model_0, alpha)
-                if args.diff > 0:
-                    to_log['train_diff_acc'], to_log['train_diff_loss'] = \
-                        test(dataloaders['mini_train_diff'], model, model_0, alpha)
-                    to_log['train_easy_acc'], to_log['train_easy_loss'] = \
-                        test(dataloaders['mini_train_easy'], model, model_0, alpha)
-                if args.track_accs:
-                    to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
-                    to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
-                if args.track_lin:
-                    to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(), linprobe.buffer['signs_0']).item()
-                    to_log['ntk_alignment'] = linprobe.kernel_alignment(linprobe.get_ntk(), linprobe.buffer['ntk_0']).item()
-                    to_log['repr_alignment'] = linprobe.representation_alignment(linprobe.get_last_layer_representation(), linprobe.buffer['repr_0']).item()
+        _, pred = (outputs_alpha + logits).max(1)
+        acc = pred.eq(targets.view_as(pred)).float().mean()
+        rae.update('train_loss', loss.item())
+        rae.update('train_acc', acc.item())
 
-                log.loc[len(log)] = to_log
-                print(log.loc[len(log) - 1])
+        optimizer.step()
 
-                path_log = os.path.join(results_dir,'log.pkl')
-                log.to_pickle(path_log)
-                print(f'saved log to {path_log}')
-
-                params_before = PVector.from_model(model).clone().detach()
-
-            inputs, targets = inputs.to('cuda'), targets.to('cuda')
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            with torch.no_grad():
-                outputs -= model_0(inputs).detach()
-            outputs_alpha = alpha * outputs
-
-            loss = criterion(outputs_alpha + logits, targets)
-            grad_f = torch.autograd.grad(loss, outputs_alpha)[0]
-            outputs.backward(grad_f)
-
-            _, pred = (outputs_alpha + logits).max(1)
-            acc = pred.eq(targets.view_as(pred)).float().mean()
-            rae.update('train_loss', loss.item())
-            rae.update('train_acc', acc.item())
-
-            optimizer.step()
-            iterations += 1
-
-            if False and do_log_:
-                params_after = PVector.from_model(model).clone().detach()
-                to_log = pd.Series()
-                to_log['iteration'] = iterations
-
-                to_log['train_lin'], to_log['train_nonlin'] = analyze_lin(model, dataloaders['mini_train'],
-                                                                          params_before, params_after)
-
-                lin_log.loc[len(lin_log)] = to_log
-                lin_log.to_pickle(os.path.join(results_dir,'lin_log.pkl'))
-        if do_save_checkpoint:
-            save_checkpoint(iterations, next_milestone-5, model, model_0, optimizer, dataloaders, rae, alpha)
-            do_save_checkpoint = False
+        probe_assistant.record_loss(loss.item())
+        print(loss.item())
 
 
 def test_binned(loaders, model, model_0, alpha):
@@ -258,7 +248,7 @@ def mkdir(p, m=None):
             print(m)
         pass
 
-from train_utils import create_fname
+from train_utils import ProbeAssistant, create_fname
 name = create_fname(args.__dict__, exclude=['base_path'],
                     replace={'fork_from': 'fork=True'})
 
@@ -290,10 +280,11 @@ if args.fork_from is not None:
 
     start_iteration = checkpoint['iterations']
 
-    _, dataloaders, criterion = get_task(args)
+    _, dataloaders, criterion = get_task(args, batch_sampler=checkpoint['train_sampler'])
 
     train_dataset = dataloaders['train'].dataset
     train_dataset.tensors = (train_dataset.tensors[0], target_tensor, train_logits)
+    dataloaders['train'].set_epoch_iter(checkpoint['epoch'], checkpoint['iterations'])
     test_dataset = dataloaders['test'].dataset
     test_dataset.tensors = (test_dataset.tensors[0], test_dataset.tensors[1], test_logits)
     if 'train_diff_logits' in checkpoint:
@@ -369,6 +360,11 @@ if args.track_accs:
 
 log = pd.DataFrame(columns=columns)
 lin_log = pd.DataFrame(columns=columns_lin)
-train(args, log, lin_log, model, model_0, optimizer, args.alpha, rae,
-      start_iteration=start_iteration, next_milestone=next_milestone,
-      lin_probe=linprobe)
+
+probe_assistant = ProbeAssistant(do_log(args=args, log=log,
+                                        dataloaders=dataloaders,
+                                        linprobe=linprobe,
+                                        alpha=args.alpha),
+                                 np.log(10), .96)
+
+train(args, model, model_0, optimizer, args.alpha, probe_assistant)

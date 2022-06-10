@@ -1,4 +1,5 @@
 import os
+from attr import Attribute
 from torch.utils.data import DataLoader
 
 
@@ -73,8 +74,8 @@ class InfiniteDataLoader(DataLoader):
         super().__init__(*args, **kwargs)
         # Initialize an iterator over the dataset.
         self.dataset_iterator = super().__iter__()
-        self._i = -1
-        self._epoch = 0
+        self.iterations = -1
+        self.epoch = 0
 
     def __iter__(self):
         return self
@@ -82,10 +83,17 @@ class InfiniteDataLoader(DataLoader):
     def __next__(self):
         try:
             batch = next(self.dataset_iterator)
+        except AttributeError:
+            self.dataset_iterator = super().__iter__()
+            batch = next(self.dataset_iterator)
         except StopIteration:
             # Dataset exhausted, use a new fresh iterator.
             self.dataset_iterator = super().__iter__()
             batch = next(self.dataset_iterator)
-            self._epoch += 1
-        self._i += 1
-        return self._i, self._epoch, batch
+            self.epoch += 1
+        self.iterations += 1
+        return self.iterations, self.epoch, batch
+
+    def set_epoch_iter(self, epoch, iteration):
+        self.iterations = iteration
+        self.epoch = epoch

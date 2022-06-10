@@ -2,13 +2,18 @@ import os
 import torch
 from torch.utils.data import DataLoader, TensorDataset, Subset
 import torch.nn as nn
-from torch.utils.data.sampler import RandomSampler
+from pickable_sampler import PickableSampler
 
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10, MNIST, KMNIST
 from models import VGG, resnet18
 import random
 import numpy as np
+
+import sys
+sys.path.append('..')
+
+from train_utils import InfiniteDataLoader
 
 default_datapath = '/tmp/data'
 if 'SLURM_TMPDIR' in os.environ:
@@ -43,7 +48,7 @@ def extract_small_loader(baseloader, length, batch_size):
 
     return DataLoader(dataset, shuffle=False, batch_size=batch_size)
 
-def get_cifar10(args, sampler=None):
+def get_cifar10(args, batch_sampler=None):
     trfms = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -53,12 +58,10 @@ def get_cifar10(args, sampler=None):
                               transform=trfms),
                       range(40000))
     trainset = to_tensordataset(trainset)
-    if sampler is None:
-        trainloader = DataLoader(trainset, batch_size=args.batch_size,
-                                 shuffle=True)
-    else:
-        trainloader = DataLoader(trainset, batch_size=args.batch_size,
-                                sampler=sampler)
+    if batch_sampler is None:
+        batch_sampler = PickableSampler(trainset, batch_size=args.batch_size,
+                                        shuffle=True)
+    trainloader = InfiniteDataLoader(trainset, batch_sampler=batch_sampler)
     trainloader_det = DataLoader(trainloader.dataset, batch_size=1000,
                                  shuffle=False)
 
@@ -189,7 +192,7 @@ def add_difficult_examples(dataloaders, args):
                                                 batch_size=1000, shuffle=False)
 
 
-def get_task(args, sampler=None):
+def get_task(args, batch_sampler=None):
     dataloaders = dict()
 
     task_name, model_name = args.task.split('_')
@@ -198,7 +201,7 @@ def get_task(args, sampler=None):
         if args.depth != 0:
             raise NotImplementedError
         dataloaders['train'], dataloaders['train_deterministic'], dataloaders['test'] = \
-            get_cifar10(args, sampler=sampler)
+            get_cifar10(args, batch_sampler=batch_sampler)
         if model_name == 'vgg11':
             model = VGG('VGG11', base=args.width, bn=args.batch_norm)
         elif model_name == 'resnet18':
