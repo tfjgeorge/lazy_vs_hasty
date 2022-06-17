@@ -119,7 +119,7 @@ def do_log(args, log, dataloaders, linprobe, alpha):
         if args.track_accs:
             to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
             to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
-        if args.track_lin:
+        if args.track_lin and (len(log) % 5 == 0):
             to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(),
                                                                  linprobe.buffer['signs_0']).item()
             to_log['ntk_alignment'] = linprobe.kernel_alignment(linprobe.get_ntk(),
