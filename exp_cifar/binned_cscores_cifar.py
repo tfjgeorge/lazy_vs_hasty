@@ -45,7 +45,7 @@ elif False:
         '/home/mila/g/georgeth/projects/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1,l2=0.0,lr=0.01,mom=0.9,task=cifar10_vgg11,track_accs=True,width=0/children/checkpoint_10_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=25000,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_vgg11,track_accs=True,track_lin=True,width=0'
     ]
 elif True:
-    base_path = '/network/scratch/g/georgeth/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=2,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/'
+    base_path = '/network/scratch/g/georgeth/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=3,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/'
     path = os.path.join(base_path, 'children/checkpoint_0_0/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
     paths_fork = [
         os.path.join(base_path, 'children/checkpoint_0_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=2500,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
