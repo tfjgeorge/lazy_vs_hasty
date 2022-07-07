@@ -1,108 +1,78 @@
 # %%
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
 import numpy as np
+import matplotlib.pyplot as plt
 
-from argparse import Namespace
-from functools import reduce
+import sys
 
-import matplotlib
-from matplotlib import pyplot as plt
-import seaborn as sns
-sns.set()
-%matplotlib inline
+from sklearn.cluster import k_means
+sys.path.append('..')
+from plot_utils import *
 
 # %%
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-#torch.cuda.set_device(0)
-
-# %%
-def generate_solution(t, array_sqrmu, array_y, sigma, linear = False):
-  # compute components of the error
-  if linear:
-    err =  np.exp(-2*t*sigma*(array_sqrmu**2))*(sigma*array_sqrmu - array_y)
-  else: 
-    exp = np.exp(-2*t*array_sqrmu*array_y)
-    err = exp*array_y*np.divide(sigma*array_sqrmu - array_y, sigma*array_sqrmu - exp*(sigma*array_sqrmu - array_y))
-
-  return err**2 
 
 ## Example 1
-n = 20
+
+t_lin_max = 250
+t_nonlin_max = 1
+res = 250
+
 sigma = 0.001
-array_sqrmu = np.sqrt(np.arange(1,n+1)[::-1])
-array_y = np.arange(1,n+1)
 
-tlin_list = np.linspace(0, 50, num=200)
-err_lin = list(map(lambda t: generate_solution(t, array_sqrmu, array_y, sigma, linear = True), tlin_list))
-err_lin = [[err_lin[k][j] for k in range(len(tlin_list))] for j in range(n)]
+mus = np.array([9, 8, 7, 6, 5])[np.newaxis, :]
 
-tnonlin_list = np.linspace(0, 0.5, num=200)
-err_nonlin = list(map(lambda t: generate_solution(t, array_sqrmu, array_y, sigma), tnonlin_list))
-err_nonlin = [[err_nonlin[k][j] for k in range(len(tnonlin_list))] for j in range(n)]
+ys = mus[::-1] / mus**.5
+ys_tilda = mus**.5 * ys
+
+t_lin = np.linspace(0, t_lin_max, res)[:, np.newaxis]
+t_nonlin = np.linspace(0, t_nonlin_max, res)[:, np.newaxis]
+
+theta_0 = np.ones(mus.shape[0]) * sigma
+theta_star = np.ones(mus.shape[0])
+
+theta_lin = theta_star + np.exp(-2 * mus[:, ::-1] * theta_0 * t_lin) * (theta_0 - theta_star)
+theta_nonlin = theta_star + np.exp(-2 * ys_tilda * t_nonlin) * (theta_star * (theta_0 - theta_star)) / (theta_0 - np.exp(-2 * ys_tilda * t_nonlin) * (theta_0 - theta_star))
+
+err_lin = mus**.5 * theta_lin - ys
+err_nonlin = mus**.5 * theta_nonlin - ys
+
+err_lin = err_lin**2
+err_nonlin = err_nonlin**2
+# %%
+
+fig = create_figure(.33, 1.5)
+p = plt.plot(err_lin)
+for i in range(err_nonlin.shape[1]):
+    plt.plot(err_nonlin[:, i], '--', c=p[i].get_color())
+
+plt.plot([], [], color='black', label='linear')
+plt.plot([], [], '--', color='black', label='non-linear')
+plt.legend()
+plt.ylabel('per example squared error')
+plt.xlabel('time (arbitrary scale)')
+# plt.yscale('log')
+
+save_fig(fig, f'example1.pdf')
+
+# %%
 
 ## Example 2
 
+n = 20 # number of training examples
+q = 5 # amongst them, number of randomly flipped examples
+eta = .01
+
+d = 25 # number of dimensions
+
+kappas = np.ones(n)
+shuffled_indices = np.arange(n)
+np.random.shuffle(shuffled_indices)
+kappas[shuffled_indices[:q]] = -1
+
+ys = np.random.randint(0, 2, size=n) * 2 - 1
+xs = np.concatenate([(kappas * ys)[:, np.newaxis],
+                     np.diag([eta]*n),
+                     np.zeros((n, d - n - 1))], axis=1)
+                    
 
 # %%
-# Example 1
-plt.figure()
-plt.title('Linear')
-for j in range(5):
-  plt.plot(tlin_list, err_lin[j])
-ax = plt.gca()
-ax.axes.xaxis.set_visible(False)
-  #plt.plot(t_list, err_nonlin, label='non-linear')
-#plt.xlabel("Training Iteration")
-#plt.ylabel("Mode errors")
-#plt.legend(['n='+str(j) for j in range(1, n+1)])
-plt.show()
-
-fig = plt.figure()
-plt.title('Non Linear')
-for j in range(5):
-  #plt.plot(t_list, err_lin, label='linear')
-  plt.plot(tnonlin_list, err_nonlin[j])
-ax = plt.gca()
-ax.axes.xaxis.set_visible(False)
-#plt.xlabel("Training Iteration")
-#plt.ylabel("Mode errors")
-#plt.legend(['n='+str(j) for j in range(1, n+1)])
-plt.show()
-
-# Example 2
-
-
-# %%
-class MLP(nn.Module):
-    def __init__(self, input_size, hidden_sizes):
-        super(type(self), self).__init__()
-        
-        self.input_size = input_size
-        self.act = F.relu
-        
-        if len(hidden_sizes) == 0:
-            self.hidden_layers = []
-            self.output_layer = nn.Linear(self.input_size, 1)
-        else:
-            self.hidden_layers = nn.ModuleList([nn.Linear(in_size, out_size) for in_size, out_size in zip([self.input_size] + hidden_sizes[:-1], hidden_sizes)])
-            self.output_layer = nn.Linear(hidden_sizes[-1], 1)
-            
-
-    def forward(self, x, return_feats=False, logits=False):
-        feats = []
-        for layer in self.hidden_layers:
-            x = self.act(layer(x))
-            feats.append(x)
-        x = self.output_layer(x)
-        if not logits:
-            x = torch.sigmoid(x)
-        if return_feats:
-            return x.flatten(), feats
-        return x.flatten()
-
-# %%
-
-
-
