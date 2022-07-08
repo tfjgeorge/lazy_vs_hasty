@@ -60,8 +60,8 @@ save_fig(fig, f'example1.pdf')
 
 n = 20 # number of training examples
 q = 5 # amongst them, number of randomly flipped examples
-eta = .1 # noise magnitude
-sigma = 0.001 # initialization scale
+eta = .5 # noise magnitude
+sigma = 1e-3 # initialization scale
 res = 250 # resolution of time scale
 
 d = 25 # number of dimensions
@@ -72,34 +72,43 @@ np.random.shuffle(shuffled_indices)
 kappas[shuffled_indices[:q]] = -1
 
 ys = np.random.randint(0, 2, size=n) * 2 - 1
-xs = np.concatenate([(kappas * ys)[:, np.newaxis],
-                     np.diag([eta]*n),
-                     np.zeros((n, d - n - 1))], axis=1)
+ys_noisy = kappas * ys
+# xs = np.concatenate([ys[:, np.newaxis],
+#                      np.diag([eta]*n),
+#                      np.zeros((n, d - n - 1))], axis=1)
+xs = np.concatenate([ys[:, np.newaxis],
+                     np.diag([eta]*n)], axis=1)
                     
 u, sqrt_mus, vT = np.linalg.svd(xs, full_matrices=False)
-mus = sqrt_mus**2
+mus = np.concatenate([sqrt_mus**2, np.zeros(vT.shape[0] - sqrt_mus.shape[0])])
 
-t_lin_max = 250
-t_nonlin_max = 250
+t_lin_max = 2500
+t_nonlin_max = 25
 
 t_lin = np.linspace(0, t_lin_max, res)[:, np.newaxis]
 t_nonlin = np.linspace(0, t_nonlin_max, res)[:, np.newaxis]
 
-theta_0 = np.ones(mus.shape[0]) * sigma
-theta_star, _, _, _ = np.linalg.lstsq(xs, ys)
+theta_0 = np.ones(xs.shape[1]) * sigma
+theta_star, _, _, _ = np.linalg.lstsq(xs, ys_noisy)
 theta_alpha_star = np.dot(vT, theta_star)
+theta_alpha_0 = np.dot(vT, theta_0)
 
-ys_tilda = np.dot(vT, np.dot(xs.T, ys))
+ys_tilda = np.dot(vT, np.dot(xs.T, ys_noisy))
+ys_tilda = np.abs(ys_tilda)
 
-theta_alpha_lin = theta_alpha_star + np.exp(-2 * mus * theta_0 * t_lin) * (theta_0 - theta_alpha_star)
-theta_alpha_nonlin = theta_alpha_star + np.exp(-2 * ys_tilda * t_nonlin) * (theta_alpha_star * (theta_0 - theta_alpha_star)) / (theta_0 - np.exp(-2 * ys_tilda * t_nonlin) * (theta_0 - theta_alpha_star))
+theta_alpha_lin = theta_alpha_star + np.exp(-2 * mus * np.abs(theta_alpha_0) * t_lin) * (theta_alpha_0 - theta_alpha_star)
+# theta_alpha_nonlin = theta_alpha_star + np.exp(-2 * ys_tilda * t_nonlin) * (theta_alpha_star * (theta_alpha_0 - theta_alpha_star)) / (theta_alpha_0 - np.exp(-2 * ys_tilda * t_nonlin) * (theta_alpha_0 - theta_alpha_star))
+# theta_alpha_nonlin = theta_alpha_star + (theta_alpha_star * (theta_alpha_0 - theta_alpha_star)) / (np.exp(2 * ys_tilda * t_nonlin) * theta_alpha_0 -(theta_alpha_0 - theta_alpha_star))
+exp = np.exp(-2 * ys_tilda * t_nonlin)
+denom = (1 + exp * (theta_alpha_star / theta_alpha_0 - 1))
+theta_alpha_nonlin = theta_alpha_star / denom
 
 # project back:
 theta_lin = np.dot(theta_alpha_lin, vT)
 theta_nonlin = np.dot(theta_alpha_nonlin, vT)
 
-err_lin = np.dot(theta_lin, xs.T) - ys
-err_nonlin = np.dot(theta_nonlin, xs.T) - ys
+err_lin = np.dot(theta_lin, xs.T) - ys_noisy
+err_nonlin = np.dot(theta_nonlin, xs.T) - ys_noisy
 
 err_lin = err_lin**2
 err_nonlin = err_nonlin**2
@@ -123,10 +132,13 @@ plt.plot(err_nonlin_noisy, '--', c=color_noisy)
 
 plt.plot([], [], color='black', label='linear')
 plt.plot([], [], '--', color='black', label='non-linear')
+plt.plot([], [], '-', color=color_clean, label='clean examples')
+plt.plot([], [], '-', color=color_noisy, label='noisy examples')
 plt.legend()
-plt.ylabel('per example squared error')
+plt.ylabel('MSE')
 plt.xlabel('time (arbitrary scale)')
 # plt.yscale('log')
+plt.ylim(0, 5)
 
 save_fig(fig, f'example2.pdf')
 
