@@ -31,7 +31,7 @@ start_time = time.time()
 parser = argparse.ArgumentParser(description='CIFAR10 training with accuracy by subgroups of examples')
 
 parser.add_argument('--task', required=True, type=str, help='Task',
-                    choices=['mnist_fc', 'cifar10_vgg11', 'cifar10_resnet18'])
+                    choices=['mnist_fc', 'cifar10_vgg11', 'cifar10_resnet18', 'svhn_resnet18'])
 parser.add_argument('--depth', default=0, type=int, help='network depth (only works with MNIST MLP)')
 parser.add_argument('--width', default=0, type=int, help='network width (MLP) or base for channels (VGG)')
 
@@ -48,6 +48,7 @@ parser.add_argument('--epochs', default=100, type=int, help='epochs')
 parser.add_argument('--batch_size', default=125, type=int, help='Batch size')
 parser.add_argument('--batch_norm', action='store_true')
 parser.add_argument('--track_accs', action='store_true', help='Computes accuracy in subsets of trainset binned by cscore')
+parser.add_argument('--track_all_accs', action='store_true', help='Computes accuracy for all examples in mini_train')
 parser.add_argument('--track_lin', action='store_true', help='Computes linearization measures')
 
 parser.add_argument('--fork_from', default=None, type=str, help='Reload checkpoint')
@@ -119,6 +120,9 @@ def do_log(args, log, dataloaders, linprobe, alpha):
         if args.track_accs:
             to_log['train_accs'], to_log['train_losses'] = test_binned(dataloaders['train_binned'], model, model_0, alpha)
             to_log['test_accs'], to_log['test_losses'] = test_binned(dataloaders['test_binned'], model, model_0, alpha)
+        if args.track_all_accs:
+            to_log['train_all_accs'], to_log['train_all_losses'] = test_all(dataloaders['mini_train'], model, model_0, alpha)
+            to_log['test_all_accs'], to_log['test_all_losses'] = test_all(dataloaders['mini_test'], model, model_0, alpha)
         if args.track_lin and (len(log) % 5 == 0):
             to_log['sign_similarity'] = linprobe.sign_similarity(linprobe.get_signs(),
                                                                  linprobe.buffer['signs_0']).item()
@@ -175,7 +179,6 @@ def train(args, model, model_0, optimizer, alpha, probe_assistant):
         optimizer.step()
 
         probe_assistant.record_loss(loss.item())
-        print(loss.item())
 
 
 def test_binned(loaders, model, model_0, alpha):
@@ -186,6 +189,26 @@ def test_binned(loaders, model, model_0, alpha):
         accs.append(acc)
         losses.append(loss)
     return accs, losses
+
+
+def test_all(loader, model, model_0, alpha):
+    model.eval()
+    model_0.eval()
+    losses = []
+    corrects = []
+    with torch.no_grad():
+        for batch_idx, (inputs, targets, logits) in enumerate(loader):
+            inputs, targets = inputs.to('cuda'), targets.to('cuda')
+            outputs = predict_logits(model, model_0, alpha, inputs, logits)
+
+            loss = criterion_noreduce(outputs, targets)
+
+            losses.append(loss.cpu())
+            _, predicted = outputs.max(1)
+            corrects.append(predicted.eq(targets).cpu())
+    model.train()
+    model_0.train()
+    return torch.cat(corrects), torch.cat(losses)
 
 
 def test(loader, model, model_0, alpha):
@@ -280,7 +303,7 @@ if args.fork_from is not None:
 
     start_iteration = checkpoint['iterations']
 
-    _, dataloaders, criterion = get_task(args, batch_sampler=checkpoint['train_sampler'])
+    _, dataloaders, criterion, criterion_noreduce = get_task(args, batch_sampler=checkpoint['train_sampler'])
 
     train_dataset = dataloaders['train'].dataset
     train_dataset.tensors = (train_dataset.tensors[0], target_tensor, train_logits)
@@ -310,7 +333,7 @@ else:
     checkpoint = None
     start_iteration = 0
 
-    model, dataloaders, criterion = get_task(args)
+    model, dataloaders, criterion, criterion_noreduce = get_task(args)
     if args.diff > 0:
         add_difficult_examples(dataloaders, args)
 
@@ -352,12 +375,14 @@ if args.track_accs:
     dataloaders['test_binned'] = get_binned_dataloaders(cscores[40000:],
         dataloaders['test'], percentiles, 1000, rng)
 
-    if args.track_accs:
-        columns += ['train_accs', 'train_losses']
-        columns += ['test_accs', 'test_losses']
-    if args.track_lin:
-        columns += ['sign_similarity', 'ntk_alignment', 'repr_alignment']
+    columns += ['train_accs', 'train_losses']
+    columns += ['test_accs', 'test_losses']
 
+if args.track_lin:
+    columns += ['sign_similarity', 'ntk_alignment', 'repr_alignment']
+if args.track_all_accs:
+    columns += ['train_all_accs', 'train_all_losses']
+    columns += ['test_all_accs', 'test_all_losses']
 log = pd.DataFrame(columns=columns)
 lin_log = pd.DataFrame(columns=columns_lin)
 
@@ -365,6 +390,6 @@ probe_assistant = ProbeAssistant(do_log(args=args, log=log,
                                         dataloaders=dataloaders,
                                         linprobe=linprobe,
                                         alpha=args.alpha),
-                                 np.log(10), .96)
+                                 np.log(10), .96, gamma=0)
 
 train(args, model, model_0, optimizer, args.alpha, probe_assistant)

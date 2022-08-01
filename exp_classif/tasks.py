@@ -5,7 +5,7 @@ import torch.nn as nn
 from pickable_sampler import PickableSampler
 
 import torchvision.transforms as transforms
-from torchvision.datasets import CIFAR10, MNIST, KMNIST
+from torchvision.datasets import CIFAR10, MNIST, KMNIST, SVHN
 from models import VGG, resnet18
 import random
 import numpy as np
@@ -68,6 +68,30 @@ def get_cifar10(args, batch_sampler=None):
     testset = Subset(CIFAR10(root=default_datapath, train=True, download=True,
                              transform=trfms),
                      range(40000, 50000))
+    testloader = DataLoader(to_tensordataset(testset), batch_size=1000,
+                            shuffle=False)
+
+    return trainloader, trainloader_det, testloader
+
+def get_svhn(args, batch_sampler=None):
+    trfms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4376821, 0.4437697, 0.47280442),
+                             (0.19803012, 0.20101562, 0.19703614)),
+    ])
+
+    trainset = SVHN(root=default_datapath, split='train', download=True,
+                    transform=trfms)
+    trainset = to_tensordataset(trainset)
+    if batch_sampler is None:
+        batch_sampler = PickableSampler(trainset, batch_size=args.batch_size,
+                                        shuffle=True)
+    trainloader = InfiniteDataLoader(trainset, batch_sampler=batch_sampler)
+    trainloader_det = DataLoader(trainloader.dataset, batch_size=1000,
+                                 shuffle=False)
+
+    testset = SVHN(root=default_datapath, split='test', download=True,
+                   transform=trfms)
     testloader = DataLoader(to_tensordataset(testset), batch_size=1000,
                             shuffle=False)
 
@@ -197,11 +221,15 @@ def get_task(args, batch_sampler=None):
 
     task_name, model_name = args.task.split('_')
 
-    if task_name == 'cifar10':
+    if task_name in ['cifar10', 'svhn']:
         if args.depth != 0:
             raise NotImplementedError
+        if task_name == 'cifar10':
+            getter = get_cifar10
+        elif task_name == 'svhn':
+            getter = get_svhn
         dataloaders['train'], dataloaders['train_deterministic'], dataloaders['test'] = \
-            get_cifar10(args, batch_sampler=batch_sampler)
+            getter(args, batch_sampler=batch_sampler)
         if model_name == 'vgg11':
             model = VGG('VGG11', base=args.width, bn=args.batch_norm)
         elif model_name == 'resnet18':
@@ -221,5 +249,6 @@ def get_task(args, batch_sampler=None):
     model = model.to('cuda')
 
     criterion = nn.CrossEntropyLoss()
+    criterion_noreduce = nn.CrossEntropyLoss(reduction='none')
 
-    return model, dataloaders, criterion
+    return model, dataloaders, criterion, criterion_noreduce
