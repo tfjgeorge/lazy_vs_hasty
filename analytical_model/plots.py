@@ -17,12 +17,16 @@ from plot_utils import *
 t_lin_max = 250
 t_nonlin_max = 1
 res = 250
-
 sigma = 0.001
 
-mus = np.array([9, 8, 7, 6, 5])[np.newaxis, :]
+def generate_example1():
+    mus = np.array([9, 8, 7, 6, 5])[np.newaxis, :]
+    xs = np.diagflat(mus**.5)
 
-ys = mus[::-1] / mus**.5
+    ys = mus[::-1] / mus**.5
+    return xs, ys, mus
+
+xs, ys, mus = generate_example1()
 ys_tilda = mus**.5 * ys
 
 t_lin = np.linspace(0, t_lin_max, res)[:, np.newaxis]
@@ -66,16 +70,20 @@ sigma = 1e-3 # initialization scale
 
 d = 200 # number of dimensions
 
-kappas = np.ones(n)
-shuffled_indices = np.arange(n)
-np.random.shuffle(shuffled_indices)
-kappas[shuffled_indices[:q]] = -1
+def generate_example2(n, q, eta, d):
+    kappas = np.ones(n)
+    shuffled_indices = np.arange(n)
+    np.random.shuffle(shuffled_indices)
+    kappas[shuffled_indices[:q]] = -1
 
-ys = np.random.randint(0, 2, size=n) * 2 - 1
-ys_noisy = kappas * ys
-xs = np.concatenate([ys[:, np.newaxis],
-                     np.diag([eta]*n),
-                     np.zeros((n, d - n - 1))], axis=1)
+    ys = np.random.randint(0, 2, size=n) * 2 - 1
+    ys_noisy = kappas * ys
+    xs = np.concatenate([ys[:, np.newaxis],
+                        np.diag([eta]*n),
+                        np.zeros((n, d - n - 1))], axis=1)
+    return xs, ys, ys_noisy, kappas
+
+xs, ys, ys_noisy, kappas = generate_example2(n, q, eta, d)
 # xs = np.concatenate([ys[:, np.newaxis],
 #                      np.diag([eta]*n)], axis=1)
                     
