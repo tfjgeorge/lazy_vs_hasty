@@ -1,12 +1,10 @@
 # %%
-import torch
-import torch.nn as nn
-
-import numpy as np
-import matplotlib.pyplot as plt
-
 import copy
 
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
 from plots import generate_example1
 
 xs, ys, mus = generate_example1()
@@ -38,9 +36,10 @@ model_0 = MLP()
 # %%
 criterion = nn.MSELoss(reduction='none')
 
-def get_losses(lr, alpha, num_iterations, model):
+def get_losses(lr, alpha, num_iterations, model_0):
     with torch.no_grad():
         pred_0 = model_0(xs)
+    model = copy.deepcopy(model_0)
 
     losses = []
     for it in range(num_iterations):
@@ -53,25 +52,35 @@ def get_losses(lr, alpha, num_iterations, model):
             for p in model.parameters():
                 p.add_(p.grad, alpha=-lr / alpha**2)
                 p.grad.zero_()
-    return np.array([l.numpy() for l in losses])
+    return np.array([l.numpy() for l in losses])[:, :, 0]
 
 # %%
 
 
 lr = 1e-3
 
-for model_i in range(5):
+losses = {
+    .1: [],
+    10: []
+}
+
+for model_i in range(20): # run n times to vary seed
     model_0 = MLP(param_scaling=.5)
 
     for alpha, num_iterations in zip([.1, 10], [150, 4000]):
-        model = copy.deepcopy(model_0)
-        losses_np = get_losses(lr, alpha, num_iterations, model)
+        losses_np = get_losses(lr, alpha, num_iterations, model_0)
         plt.figure()
-        plt.plot(losses_np[:, :, 0])
+        plt.plot(losses_np)
         plt.xlabel('GD iterations')
         plt.ylabel('per example squared loss')
         plt.savefig(f'plots_mlp/{model_i}_alpha_{alpha}.pdf')
 
+        losses[alpha].append(losses_np)
+
 # %%
 
-    # %%
+plt.plot(np.mean(losses[.1], axis=0))
+plt.show()
+plt.plot(np.mean(losses[10], axis=0))
+plt.show()
+# %%
