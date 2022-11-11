@@ -138,17 +138,17 @@ x_nonlin = np.arange(len(err_nonlin_clean))
 # x_nonlin = err_nonlin_clean
 
 p = plt.plot(x_lin, err_lin_clean)
-color_lin = p[0].get_color()
-p = plt.plot(x_nonlin, err_nonlin_clean)
-color_nonlin = p[0].get_color()
+color_clean = p[0].get_color()
+p = plt.plot(x_lin, err_lin_noisy)
+color_noisy = p[0].get_color()
 
-plt.plot(x_lin, err_lin_noisy, '--', c=color_lin)
-plt.plot(x_nonlin, err_nonlin_noisy, '--', c=color_nonlin)
+plt.plot(x_nonlin, err_nonlin_clean, '--', c=color_clean)
+plt.plot(x_nonlin, err_nonlin_noisy, '--', c=color_noisy)
 
-plt.plot([], [], color='black', label='clean')
-plt.plot([], [], '--', color='black', label='noisy')
-plt.plot([], [], '-', color=color_lin, label='linear')
-plt.plot([], [], '-', color=color_nonlin, label='non-linear')
+plt.plot([], [], color='black', label='linear')
+plt.plot([], [], '--', color='black', label='non-linear')
+plt.plot([], [], '-', color=color_clean, label='clean')
+plt.plot([], [], '-', color=color_noisy, label='noisy')
 plt.legend(ncol=1)
 plt.ylabel('Clean/noisy examples MSE')
 plt.xlabel('time (arbitrary scale)')
@@ -166,7 +166,7 @@ save_fig(fig, f'example2.pdf')
 ## Example 3
 
 n = 20 # number of training examples
-q = 5 # amongst them, examples that do not have the spurious correlation
+q = 5 # amongst them, examples that do not have the spuriously correlated feature
 eta = 10 # noise magnitude
 sigma = 1e-3 # initialization scale
 lambd = 1 # spurious correlation strength
@@ -180,20 +180,23 @@ res = 250 # resolution of time scale
 t_lin = np.linspace(0, t_lin_max, res)[:, np.newaxis]
 t_nonlin = np.linspace(0, t_nonlin_max, res)[:, np.newaxis]
 
-kappas = np.ones(n) # kappa = 1: spur correl, kappa = -1 no spur correl
-shuffled_indices = np.arange(n)
-np.random.shuffle(shuffled_indices)
-kappas[shuffled_indices[:q]] = -1
+def generate_example3(n, q, eta, d, lambd):
+    kappas = np.ones(n) # kappa = 1: spur correl, kappa = -1 no spur correl
+    shuffled_indices = np.arange(n)
+    np.random.shuffle(shuffled_indices)
+    kappas[shuffled_indices[:q]] = -1
 
-ys = np.random.randint(0, 2, size=n) * 2 - 1
-ys_noisy = kappas * ys
-xs = np.concatenate([ys[:, np.newaxis],
-                     (lambd * kappas * ys)[:, np.newaxis],
-                     np.diag([eta]*n),
-                     np.zeros((n, d - n - 2))], axis=1)
-# xs = np.concatenate([ys[:, np.newaxis],
-#                      np.diag([eta]*n)], axis=1)
-                    
+    ys = np.random.randint(0, 2, size=n) * 2 - 1
+    ys_noisy = kappas * ys
+    xs = np.concatenate([ys[:, np.newaxis],
+                        (lambd * kappas * ys)[:, np.newaxis],
+                        np.diag([eta]*n),
+                        np.zeros((n, d - n - 2))], axis=1)
+
+    return xs, ys, ys_noisy, kappas
+
+xs, ys, ys_noisy, kappas = generate_example3(n, q, eta, d, lambd)
+
 u, sqrt_mus, vT = np.linalg.svd(xs, full_matrices=True)
 mus = np.concatenate([sqrt_mus**2, np.zeros(vT.shape[0] - sqrt_mus.shape[0])])
 
@@ -238,17 +241,17 @@ x_nonlin = np.arange(len(err_nonlin_spur))
 # x_nonlin = err_nonlin_spur
 
 p = plt.plot(x_lin, err_lin_spur)
-color_lin = p[0].get_color()
-p = plt.plot(x_nonlin, err_nonlin_spur)
-color_nonlin = p[0].get_color()
+color_spur = p[0].get_color()
+p = plt.plot(x_lin, err_lin_nospur)
+color_nospur = p[0].get_color()
 
-plt.plot(x_lin, err_lin_nospur, '--', c=color_lin)
-plt.plot(x_nonlin, err_nonlin_nospur, '--', c=color_nonlin)
+plt.plot(x_nonlin, err_nonlin_spur, '--', c=color_spur)
+plt.plot(x_nonlin, err_nonlin_nospur, '--', c=color_nospur)
 
-plt.plot([], [], color='black', label='spur.')
-plt.plot([], [], '--', color='black', label='no spur.')
-plt.plot([], [], '-', color=color_lin, label='linear')
-plt.plot([], [], '-', color=color_nonlin, label='non-linear')
+plt.plot([], [], color='black', label='linear')
+plt.plot([], [], '--', color='black', label='non-linear')
+plt.plot([], [], '-', color=color_spur, label='spurious')
+plt.plot([], [], '-', color=color_nospur, label='no spur.')
 plt.legend(ncol=1)
 plt.ylabel('Per group MSE')
 plt.xlabel('time (arbitrary scale)')
