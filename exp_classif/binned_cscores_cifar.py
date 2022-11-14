@@ -32,10 +32,10 @@ paths_fork = [
 
 if False:
     #resnet18
-    path = '/home/mila/g/georgeth/projects/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_10_0/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0'
-
+    base_path = f'/network/scratch/g/georgeth/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_10_0/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0/'
+    path = os.path.join(base_path, 'children/checkpoint_10_0/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
     paths_fork = [
-        '/home/mila/g/georgeth/projects/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/children/checkpoint_10_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1000,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0'
+        os.path.join(base_path, 'children/checkpoint_10_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1000,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
     ]
 elif False:
     # vgg11
@@ -45,7 +45,8 @@ elif False:
         '/home/mila/g/georgeth/projects/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=1,l2=0.0,lr=0.01,mom=0.9,task=cifar10_vgg11,track_accs=True,width=0/children/checkpoint_10_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=25000,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_vgg11,track_accs=True,track_lin=True,width=0'
     ]
 elif True:
-    base_path = '/network/scratch/g/georgeth/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=3,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/'
+    base_epochs = 4
+    base_path = f'/network/scratch/g/georgeth/linvsnonlin/cifar10/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs={base_epochs},l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,width=0/'
     path = os.path.join(base_path, 'children/checkpoint_0_0/alpha=1.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=200,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
     paths_fork = [
         os.path.join(base_path, 'children/checkpoint_0_0/alpha=100.0,batch_size=125,depth=0,diff=0.0,diff_type=random,epochs=2500,fork=True,l2=0.0,lr=0.01,mom=0.9,task=cifar10_resnet18,track_accs=True,track_lin=True,width=0')
@@ -58,7 +59,7 @@ d = pd.read_pickle(os.path.join(path, 'log.pkl'))
 # %%
 
 def get_checkpoint_name(path_fork):
-    return path_fork.split('/')[10]
+    return path_fork.split('/')[-2]
 
 # %% 
 from plot_helpers import concatenate_acc_loss
@@ -116,7 +117,9 @@ smoothen_xy = lambda *x: x
 
 # %% 
 linewidth = .7
-def plot_vs_train_loss(path, path_fork, normalize='none'):
+def plot_vs_train_loss(path, path_fork, normalize='none', group=1,
+        which=[0, 2, 7, 9],
+        legends=['bottom 10%', '20-30% decile', '70-80% decile', 'top 10% c-scores']):
     fork_dict = path_to_dict(os.path.split(path_fork)[-1])
     print(fork_dict)
 
@@ -125,8 +128,8 @@ def plot_vs_train_loss(path, path_fork, normalize='none'):
 
     print(int(d_fork['iteration'].max() / 400), d_fork['time'].max())
 
-    accs, losses = concatenate_acc_loss(d)
-    accs_fork, losses_fork = concatenate_acc_loss(d_fork)
+    accs, losses = concatenate_acc_loss(d, group=group)
+    accs_fork, losses_fork = concatenate_acc_loss(d_fork, group=group)
 
     n_bins = losses.shape[1]
 
@@ -167,7 +170,7 @@ def plot_vs_train_loss(path, path_fork, normalize='none'):
 
     checkpoint_name = get_checkpoint_name(path_fork)
     cmap = cm.viridis(np.linspace(0, .8, n_bins))
-    for i in range(n_bins):
+    for i in which:
         plt.plot(*smoothen_xy(_x, losses[:, i]),
                  marker='', color=cmap[i], linewidth=linewidth)
         plt.plot(*smoothen_xy(_x_fork, losses_fork[:, i]), '--',
@@ -177,10 +180,14 @@ def plot_vs_train_loss(path, path_fork, normalize='none'):
              label='non-linear ($\\alpha=1$)')
     plt.plot([], [], '--', color='black', linewidth=linewidth,
              label='linear ($\\alpha=100$)')
-    plt.plot([], [], '', color=cmap[0], linewidth=2,
-             label='lowest c-scores')
-    plt.plot([], [], '', color=cmap[-1], linewidth=2,
-             label='highest c-scores')
+
+    for i, legend in reversed(list(zip(which, legends))):
+        plt.plot([], [], '', color=cmap[i], linewidth=2,
+                label=legend)
+    # plt.plot([], [], '', color=cmap[0], linewidth=2,
+    #         label='lowest c-scores')
+    # plt.plot([], [], '', color=cmap[-1], linewidth=2,
+    #         label='highest c-scores')
     plt.legend()
     # plt.xscale('log')
 
@@ -302,11 +309,7 @@ def plot_vs_train_acc(path, path_fork, normalize='none', normalize_acc=True):
     plt.savefig(f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_acc_vs_{normalize}_{norm_str}_bins.pdf')
     plt.show()
 
-# %%
-
-from scipy.interpolate import interp1d
-
-def plot_diff_vs_train_loss(path, path_fork, normalize='none'):
+def plot_vs_train_acc(path, path_fork, normalize='none'):
     fork_dict = path_to_dict(os.path.split(path_fork)[-1])
     print(fork_dict)
 
@@ -325,6 +328,113 @@ def plot_diff_vs_train_loss(path, path_fork, normalize='none'):
 
     if normalize in ['mean', 'low', 'middle', 'high']:
         if normalize == 'mean':
+            x = accs.mean(axis=1)
+            x_fork = accs_fork.mean(axis=1)
+        elif normalize == 'low':
+            x = losses[:, 0]
+            x_fork = losses_fork[:, 0]
+        elif normalize == 'middle':
+            x = losses[:, n_bins // 2]
+            x_fork = losses_fork[:, n_bins // 2]
+        elif normalize == 'high':
+            x = losses[:, -1]
+            x_fork = losses_fork[:, -1]
+        plt.xlabel(f'{normalize} training accuracy')
+        # plt.xlim(d_fork['train_loss'].max(), 0)
+        plt.xlim(0, 1)
+        if False:
+            xtent = d_fork['train_loss'].max() - d_fork['train_loss'].min()
+            plt.xlim(d_fork['train_loss'].max() + xtent * .2, d_fork['train_loss'].min() - xtent * .2)
+    else:
+        x = d['iteration']
+        x_fork = d_fork['iteration']
+        plt.xlabel('sgd iterations')
+        if True:
+            xtent = d['iteration'].max()
+            plt.xlim(0, xtent*1.2)
+
+    _x = np.maximum.accumulate(x)
+    _x_fork = np.maximum.accumulate(x_fork)
+    # _x = x
+    # _x_fork = x_fork
+
+    checkpoint_name = get_checkpoint_name(path_fork)
+    cmap = cm.viridis(np.linspace(0, .8, n_bins))
+    for i in range(n_bins):
+        plt.plot(*smoothen_xy(_x, accs[:, i]),
+                 marker='', color=cmap[i], linewidth=linewidth)
+        plt.plot(*smoothen_xy(_x_fork, accs_fork[:, i]), '--',
+                 marker='', color=cmap[i], linewidth=linewidth)
+
+    plt.plot([], [], '', color='black', linewidth=linewidth,
+             label='non-linear ($\\alpha=1$)')
+    plt.plot([], [], '--', color='black', linewidth=linewidth,
+             label='linear ($\\alpha=100$)')
+    plt.plot([], [], '', color=cmap[0], linewidth=2,
+             label='lowest c-scores')
+    plt.plot([], [], '', color=cmap[-1], linewidth=2,
+             label='highest c-scores')
+    plt.legend()
+    # plt.xscale('log')
+
+    plt.ylabel('per c-score bin training accuracy')
+    # plt.ylim(0, 1)
+    plt.grid()
+
+    xlims = plt.xlim()
+    ylims = plt.ylim()
+
+    ## -- test
+
+    # plt.subplot2grid((2, 1), (1, 0))
+
+    # test_accs, test_losses = concatenate_acc_loss(d, train=False)
+    # test_accs_fork, test_losses_fork = concatenate_acc_loss(d_fork, train=False)
+    
+    # # plt.scatter(x, d['test_loss'], label='regular', marker='x')
+    # # plt.scatter(x_fork, d_fork['test_loss'], label=f'alpha={fork_dict["alpha"]}', marker='+')
+    # for i in range(n_bins):
+    #     plt.plot(*smoothen_xy(x, test_losses[:, i]),
+    #              marker='', color=cmap[i], linewidth=linewidth)
+    #     # plt.plot(*smoothen_xy(x_fork, test_losses_fork[:, i]),
+    #     #          marker='', color='red')#cmap[i], alpha=.5)
+    #     plt.plot(*smoothen_xy(x_fork, test_losses_fork[:, i]), '--',
+    #              marker='', color=cmap[i], linewidth=linewidth)
+    # plt.grid()
+    # plt.xlim(*xlims)
+    # plt.ylim(*ylims)
+    # plt.ylabel('test loss')
+    print('----', checkpoint_name)
+    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_acc_vs_{normalize}_bins.pdf'
+    save_fig(plt.gcf(), fig_path)
+    plt.show()
+
+# %%
+
+from scipy.interpolate import interp1d
+
+def plot_diff_vs_train_loss(path, path_fork, normalize='none', test=True):
+    fork_dict = path_to_dict(os.path.split(path_fork)[-1])
+    print(fork_dict)
+
+    d = pd.read_pickle(os.path.join(path, 'log.pkl'))
+    d_fork = pd.read_pickle(os.path.join(path_fork, 'log.pkl'))
+
+    print(int(d_fork['iteration'].max() / 400), d_fork['time'].max())
+
+    accs, losses = concatenate_acc_loss(d)
+    accs_fork, losses_fork = concatenate_acc_loss(d_fork)
+
+    n_bins = losses.shape[1]
+
+    if test:
+        create_figure(.5, 0.75)
+        plt.subplot2grid((2, 1), (0, 0))
+    else:
+        create_figure(.5, 1.5)
+
+    if normalize in ['mean', 'low', 'middle', 'high']:
+        if normalize == 'mean':
             x = losses.mean(axis=1)
             x_fork = losses_fork.mean(axis=1)
         elif normalize == 'low':
@@ -336,16 +446,8 @@ def plot_diff_vs_train_loss(path, path_fork, normalize='none'):
         elif normalize == 'high':
             x = losses[:, -1]
             x_fork = losses_fork[:, -1]
-        plt.xlabel(f'{normalize} training loss')
         # plt.xlim(d_fork['train_loss'].max(), 0)
-        plt.xlim(x_fork.max()*1.1, x_fork.min()*.7)
-    else:
-        x = d['iteration']
-        x_fork = d_fork['iteration']
-        plt.xlabel('sgd iterations')
-        if True:
-            xtent = d['iteration'].max()
-            plt.xlim(0, xtent*1.2)
+        plt.xlim(x_fork.max()*1.1, x_fork.min()*1.)
 
     _x = np.minimum.accumulate(x)
     _x_fork = np.minimum.accumulate(x_fork)
@@ -360,7 +462,9 @@ def plot_diff_vs_train_loss(path, path_fork, normalize='none'):
         f_fork = interp1d(_x_fork, losses_fork[:, i], bounds_error=False)
         y = f(x_common)
         y_fork = f_fork(x_common)
-        plt.plot(x_common, y - y_fork, marker='', color=cmap[i],
+        # diff = 2 * (y - y_fork) / (y + y_fork)
+        diff = y - y_fork
+        plt.plot(x_common, diff, marker='', color=cmap[i],
                  linewidth=linewidth)
 
     plt.plot([], [], '', color=cmap[0], linewidth=2,
@@ -368,15 +472,61 @@ def plot_diff_vs_train_loss(path, path_fork, normalize='none'):
     plt.plot([], [], '', color=cmap[-1], linewidth=2,
              label='highest c-scores')
     plt.legend()
-    # plt.xscale('log')
+    plt.xscale('log')
 
     plt.ylabel('nonlinear - linear training loss')
     # plt.ylim(0, 1)
     plt.grid()
 
-    plt.xlim(np.log(10), 0)
+    xlims_train = plt.xlim()
 
-    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_loss_diff_vs_{normalize}_bins.pdf'
+    # plt.xlim(np.log(10), 0)
+
+    if test:
+        plt.subplot2grid((2, 1), (1, 0))
+
+        test_accs, test_losses = concatenate_acc_loss(d, train=False)
+        test_accs_fork, test_losses_fork = concatenate_acc_loss(d_fork, train=False)
+
+        ys = []
+        ys_fork = []
+        for i in range(n_bins):
+            f = interp1d(_x, test_losses[:, i], bounds_error=False)
+            f_fork = interp1d(_x_fork, test_losses_fork[:, i], bounds_error=False)
+            y = f(x_common)
+            y_fork = f_fork(x_common)
+            diff = 2 * (y - y_fork) / (y + y_fork)
+            # diff = y - y_fork
+            plt.plot(x_common, diff, marker='', color=cmap[i],
+                    linewidth=linewidth)
+
+            ys.append(y)
+            ys_fork.append(y_fork)
+
+        y_mean = sum(ys) / len(ys)
+        y_fork_mean = sum(ys_fork) / len(ys_fork)
+        plt.plot(x_common, y_mean, marker='', color='red',
+                 linewidth=linewidth, label='non-linear test loss')
+        plt.plot(x_common, y_fork_mean, marker='', color='orange',
+                 linewidth=linewidth, label='linear test loss')
+
+        plt.plot([], [], '', color=cmap[0], linewidth=2,
+                label='lowest c-scores')
+        plt.plot([], [], '', color=cmap[-1], linewidth=2,
+                label='highest c-scores')
+        plt.legend()
+        plt.xlim(*xlims_train)
+        plt.xscale('log')
+
+        plt.ylabel('nonlinear - linear test loss')
+        # plt.ylim(0, 1)
+        plt.grid()
+
+
+    plt.xlabel(f'{normalize} training loss')
+
+    withtest = '_with_test' if test else ''
+    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_loss_diff_vs_{normalize}_bins{withtest}.pdf'
     save_fig(plt.gcf(), fig_path)
     plt.show()
 
@@ -474,7 +624,8 @@ def plot_diff_vs_train_acc(path, path_fork, normalize='none', test=True):
 
     plt.xlabel(f'{normalize} training accuracy')
 
-    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_acc_diff_vs_{normalize}_bins.pdf'
+    withtest = '_with_test' if test else ''
+    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_acc_diff_vs_{normalize}_bins{withtest}.pdf'
     save_fig(plt.gcf(), fig_path)
     plt.show()
 
@@ -483,11 +634,99 @@ def plot_diff_vs_train_acc(path, path_fork, normalize='none', test=True):
 for path_fork in paths_fork:
     for normalize in ['mean']:#['none', 'mean', 'low', 'middle', 'high']:
         plot_vs_train_loss(path, path_fork, normalize=normalize)
+        plot_diff_vs_train_loss(path, path_fork, normalize=normalize, test=False)
         plot_diff_vs_train_loss(path, path_fork, normalize=normalize)
-        plot_vs_train_acc(path, path_fork, normalize=normalize)
         plot_diff_vs_train_acc(path, path_fork, normalize=normalize)
         # plot_vs_train_acc(path, path_fork, normalize=normalize, normalize_acc=False)
 
+
+# %%
+
+def plot_vs_train_loss_cumul(path, path_fork, normalize='none'):
+    fork_dict = path_to_dict(os.path.split(path_fork)[-1])
+    print(fork_dict)
+
+    d = pd.read_pickle(os.path.join(path, 'log.pkl'))
+    d_fork = pd.read_pickle(os.path.join(path_fork, 'log.pkl'))
+
+    print(int(d_fork['iteration'].max() / 400), d_fork['time'].max())
+
+    accs, losses = concatenate_acc_loss(d)
+    accs_fork, losses_fork = concatenate_acc_loss(d_fork)
+
+    n_bins = losses.shape[1]
+
+    create_figure(.5, 1.5)
+    # plt.subplot2grid((2, 1), (0, 0))
+
+    if normalize in ['mean', 'low', 'middle', 'high']:
+        if normalize == 'mean':
+            x = losses.mean(axis=1)
+            x_fork = losses_fork.mean(axis=1)
+        elif normalize == 'low':
+            x = losses[:, 0]
+            x_fork = losses_fork[:, 0]
+        elif normalize == 'middle':
+            x = losses[:, n_bins // 2]
+            x_fork = losses_fork[:, n_bins // 2]
+        elif normalize == 'high':
+            x = losses[:, -1]
+            x_fork = losses_fork[:, -1]
+        plt.xlabel(f'{normalize} training loss')
+        # plt.xlim(d_fork['train_loss'].max(), 0)
+        plt.xlim(x_fork.max()*1.1, x_fork.min()*.7)
+        if False:
+            xtent = d_fork['train_loss'].max() - d_fork['train_loss'].min()
+            plt.xlim(d_fork['train_loss'].max() + xtent * .2, d_fork['train_loss'].min() - xtent * .2)
+    else:
+        x = d['iteration']
+        x_fork = d_fork['iteration']
+        plt.xlabel('sgd iterations')
+        if True:
+            xtent = d['iteration'].max()
+            plt.xlim(0, xtent*1.2)
+
+    _x = np.minimum.accumulate(x)
+    _x_fork = np.minimum.accumulate(x_fork)
+    # _x = x
+    # _x_fork = x_fork
+
+    checkpoint_name = get_checkpoint_name(path_fork)
+    cmap = cm.viridis(np.linspace(0, .8, n_bins))
+    norm = losses.sum(axis=1)
+    norm_fork = losses_fork.sum(axis=1)
+    for i in range(n_bins):
+        plt.plot(*smoothen_xy(_x, losses[:, i:].sum(axis=1) / norm),
+                 marker='', color=cmap[i], linewidth=linewidth)
+        plt.plot(*smoothen_xy(_x_fork, losses_fork[:, i:].sum(axis=1) / norm_fork),
+                 '--', marker='', color=cmap[i], linewidth=linewidth)
+
+    plt.plot([], [], '', color='black', linewidth=linewidth,
+             label='non-linear ($\\alpha=1$)')
+    plt.plot([], [], '--', color='black', linewidth=linewidth,
+             label='linear ($\\alpha=100$)')
+    plt.plot([], [], '', color=cmap[0], linewidth=2,
+             label='lowest c-scores')
+    plt.plot([], [], '', color=cmap[-1], linewidth=2,
+             label='highest c-scores')
+    plt.legend()
+    # plt.xscale('log')
+
+    plt.ylabel('per c-score bin training loss')
+    # plt.ylim(0, 1)
+    plt.grid()
+
+    xlims = plt.xlim()
+    ylims = plt.ylim()
+    
+    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_loss_vs_{normalize}_bins_cumul.pdf'
+    save_fig(plt.gcf(), fig_path)
+    plt.show()
+
+
+for path_fork in paths_fork:
+    for normalize in ['mean']:#['none', 'mean', 'low', 'middle', 'high']:
+        plot_vs_train_loss_cumul(path, path_fork, normalize=normalize)
 
 # %%
 
@@ -512,6 +751,7 @@ def plot_lin_vs_clean(paths, legends, figures_path,
         # print(run_dict)
 
         d = pd.read_pickle(os.path.join(path, 'log.pkl'))
+        d = d[d['sign_similarity'].notna()]
 
         n_datapoints = len(d)
         x = easy_fn(d)
@@ -544,4 +784,60 @@ plot_lin_vs_clean([path, path_fork],
                   ['non-linear ($\\alpha=1$)', f'linear ($\\alpha=100$)'],
                   figures_path=figures_path,
                   easy_fn=lambda d: d['train_loss'])
+# %%
+
+def better_test_compare(path, path_fork, use_acc=False):
+    fork_dict = path_to_dict(os.path.split(path_fork)[-1])
+    print(fork_dict)
+
+    create_figure(.5, 1.5)
+
+    d = pd.read_pickle(os.path.join(path, 'log.pkl'))
+    d_fork = pd.read_pickle(os.path.join(path_fork, 'log.pkl'))
+
+    print(int(d_fork['iteration'].max() / 400), d_fork['time'].max())
+
+    accs, losses = concatenate_acc_loss(d, train=False)
+    accs_fork, losses_fork = concatenate_acc_loss(d_fork, train=False)
+
+    if use_acc:
+        v = accs
+        v_fork = accs_fork
+        arg_compare = np.argmax
+        plt.ylabel('test accuracy non-linear - linear\nfor best predictor')
+    else:
+        v = losses
+        v_fork = losses_fork
+        arg_compare = np.argmin
+        plt.ylabel('test loss non-linear - linear\nfor best predictor')
+
+    # n_bins
+    n_bins = v.shape[1]
+
+    # extract best test:
+    best_i = arg_compare(v.mean(axis=1))
+    best_i_fork = arg_compare(v_fork.mean(axis=1))
+
+    cmap = cm.viridis(np.linspace(0, .8, n_bins))
+    plt.bar(np.arange(n_bins),
+            v[best_i] - v_fork[best_i_fork],
+            color=cmap)
+
+    checkpoint_name = get_checkpoint_name(path_fork)
+
+    plt.xlabel('$\longleftarrow$ low C-scores           high C-scores $\longrightarrow$')
+    
+    if use_acc:
+        suffix = 'acc'
+    else:
+        suffix = 'loss'
+    fig_path = f'{figures_path}/{checkpoint_name}_alpha_{fork_dict["alpha"]}_best_test_{suffix}.pdf'
+    save_fig(plt.gcf(), fig_path)
+    plt.show()
+
+
+for path_fork in paths_fork:
+    better_test_compare(path, path_fork)
+    better_test_compare(path, path_fork, use_acc=True)
+
 # %%
